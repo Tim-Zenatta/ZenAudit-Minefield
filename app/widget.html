@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>CRM Field Check</title>
+    <script src="https://live.zwidgets.com/js-sdk/1.2/ZohoEmbededAppSDK.min.js"></script>
+    <link rel="stylesheet" href="css/styles.css">
+  </head>
+  <body class="dark">
+    <header>
+      <svg id="logo" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="1" y="1" width="22" height="22" rx="5" fill="#2f77e0"/>
+        <rect x="5" y="6" width="11" height="2.4" rx="1.2" fill="#fff" opacity=".95"/>
+        <rect x="5" y="10.5" width="7.5" height="2.4" rx="1.2" fill="#fff" opacity=".65"/>
+        <path d="M12.5 16.5l2.6 2.6 4.9-5.4" stroke="#4ade80" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h1>CRM Field Check</h1>
+      <span class="tag">Know what breaks before you delete a field</span>
+      <span class="tag" id="build-tag">build 20</span>
+      <span id="sdk-tag" class="tag" style="margin-left:auto">connecting&hellip;</span>
+      <button id="theme-toggle" title="Switch to light mode">&#9728;&#65039;</button>
+    </header>
+
+    <!-- ============ Loader overlay ============ -->
+    <div id="loader">
+      <div class="loader-stage">
+        <div class="loader-scene">
+          <div class="pill p1"><svg viewBox="0 0 14 14"><circle cx="3" cy="11" r="2"/><circle cx="7" cy="4" r="2"/><circle cx="11.5" cy="9" r="2"/><path d="M4.2 9.4 5.9 6 M8.7 5.2 10.3 7.6" stroke="currentColor" stroke-width="1.4" fill="none"/></svg><span>Pipeline</span></div>
+          <div class="pill p2"><svg viewBox="0 0 14 14"><circle cx="7" cy="4.5" r="3"/><path d="M1.5 13q5.5-6.5 11 0z"/></svg><span>Owner</span></div>
+          <div class="pill p3"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="11" height="10" rx="1.6"/><path d="M1.5 5.8h11M4.5 1.2v2.6M9.5 1.2v2.6"/></svg><span>Close Date</span></div>
+          <div class="pill p4"><svg viewBox="0 0 14 14"><rect x="1" y="8" width="3" height="5" rx="0.8"/><rect x="5.5" y="5" width="3" height="8" rx="0.8"/><rect x="10" y="2" width="3" height="11" rx="0.8"/></svg><span>Status</span></div>
+          <div class="pill p5"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><circle cx="7" cy="7" r="2.6"/><circle cx="7" cy="7" r="0.8" fill="currentColor" stroke="none"/></svg><span>Deal Stage</span></div>
+          <div class="pill p6"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.8"/><path d="M7 3.4v7.2M9.2 5.2c-.6-1-4.4-1.2-4.4.6 0 2 4.4 1 4.4 3 0 1.8-3.8 1.6-4.4.6"/></svg><span>Amount</span></div>
+          <div class="loader-shadow"></div>
+          <div class="otter-wrap">
+            <svg viewBox="0 0 220 230" width="200" height="210" aria-hidden="true">
+              <defs>
+                <radialGradient id="oglow" cx="50%" cy="45%" r="55%">
+                  <stop offset="0%" stop-color="#22a565" stop-opacity=".28"/>
+                  <stop offset="100%" stop-color="#22a565" stop-opacity="0"/>
+                </radialGradient>
+              </defs>
+              <circle cx="110" cy="112" r="105" fill="url(#oglow)"/>
+              <path d="M148 192 q42 8 54 -12 q-4 28 -34 32 q-16 2 -26 -8 z" fill="#8d5a38"/>
+              <path d="M62 186 q48 30 96 0 q-6 26 -48 26 q-42 0 -48 -26 z" fill="#17694a"/>
+              <path d="M80 124 q30 -16 60 0 q20 36 14 64 q-44 18 -88 0 q-6 -28 14 -64 z" fill="#1f8a5d"/>
+              <path d="M92 122 L110 158 L96 128 z" fill="#17694a"/>
+              <path d="M128 122 L110 158 L124 128 z" fill="#17694a"/>
+              <path d="M86 130 Q54 138 44 154 Q40 162 49 165 Q57 167 63 159 Q73 146 92 141 Z" fill="#1f8a5d"/>
+              <path d="M134 130 Q166 138 176 154 Q180 162 171 165 Q163 167 157 159 Q147 146 128 141 Z" fill="#1f8a5d"/>
+              <circle cx="47" cy="152" r="7" fill="#a9744f"/>
+              <circle cx="173" cy="152" r="7" fill="#a9744f"/>
+              <rect x="88" y="164" width="44" height="8" rx="4" fill="#0f5236"/>
+              <circle cx="110" cy="168" r="5" fill="#0f5236"/>
+              <ellipse cx="110" cy="84" rx="43" ry="39" fill="#a9744f"/>
+              <circle cx="75" cy="52" r="9" fill="#a9744f"/><circle cx="75" cy="52" r="4.5" fill="#8d5a38"/>
+              <circle cx="145" cy="52" r="9" fill="#a9744f"/><circle cx="145" cy="52" r="4.5" fill="#8d5a38"/>
+              <path d="M71 60 q39 -22 78 0 l0 11 q-39 -20 -78 0 z" fill="#1f8a5d"/>
+              <ellipse cx="110" cy="101" rx="25" ry="17" fill="#e9cfae"/>
+              <path d="M103 92 q7 -5 14 0 q-3 8 -7 8 q-4 0 -7 -8 z" fill="#3a2a1e"/>
+              <path d="M110 100 v4" stroke="#3a2a1e" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+              <path d="M110 104 q-5 5 -11 2 M110 104 q5 5 11 2" stroke="#3a2a1e" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+              <path d="M84 82 q7 6 14 0" stroke="#3a2a1e" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+              <path d="M122 82 q7 6 14 0" stroke="#3a2a1e" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+              <ellipse cx="78" cy="96" rx="6" ry="3.5" fill="#e4576a" opacity=".22"/>
+              <ellipse cx="142" cy="96" rx="6" ry="3.5" fill="#e4576a" opacity=".22"/>
+              <path d="M84 100 L66 96 M84 105 L67 105 M136 100 L154 96 M136 105 L153 105" stroke="#3a2a1e" stroke-width="1" opacity=".28" fill="none"/>
+            </svg>
+          </div>
+        </div>
+        <div class="loader-caption">making field cleanup safer</div>
+        <div class="loader-bar"><div id="loader-fill" class="indet"></div></div>
+        <div id="loader-status">Connecting to Zoho&hellip;</div>
+      </div>
+    </div>
+
+    <!-- Backdrop-free mini loader for in-page work like Check All -->
+    <div id="mini-loader" class="hidden">
+      <div id="mini-otter"></div>
+      <div class="loader-bar mini"><div id="mini-fill"></div></div>
+      <div id="mini-status"></div>
+    </div>
+
+    <div class="wrap">
+      <!-- ============ Setup / scan ============ -->
+      <div class="card" id="setup-card">
+        <h2><span class="step">1</span>Connect and scan Analytics <button class="link hidden" id="btn-toggle-setup">show settings</button></h2>
+        <div class="setup-row">
+          <div>
+            <label>Analytics connection link name</label>
+            <input type="text" id="conn-analytics" value="analytics">
+            <div class="scopes">scope: <code>ZohoAnalytics.metadata.read</code><span>or</span><code>ZohoAnalytics.fullaccess.all</code></div>
+          </div>
+          <div>
+            <label>CRM connection link name (functions)</label>
+            <input type="text" id="conn-crm" value="crm">
+            <div class="scopes">scope: <code>ZohoCRM.settings.ALL</code><span>or minimal</span><code>ZohoCRM.settings.functions.READ</code></div>
+          </div>
+        </div>
+        <div class="setup-row">
+          <div>
+            <label>Data center</label>
+            <select id="dc">
+              <option value="https://analyticsapi.zoho.com" selected>US (.com)</option>
+              <option value="https://analyticsapi.zoho.eu">EU (.eu)</option>
+              <option value="https://analyticsapi.zoho.in">IN (.in)</option>
+              <option value="https://analyticsapi.zoho.com.au">AU (.com.au)</option>
+            </select>
+          </div>
+          <div>
+            <label>Organization</label>
+            <select id="org-pick" disabled><option>load orgs first</option></select>
+          </div>
+          <button id="btn-orgs" disabled>Load orgs</button>
+          <button id="btn-workspaces" disabled>Load workspaces</button>
+        </div>
+        <div id="ws-section" class="hidden">
+          <label>Workspaces to scan &mdash; click to include or exclude</label>
+          <div id="ws-list"></div>
+        </div>
+        <div class="setup-row scan-row">
+          <button id="btn-scan" disabled>Scan selected workspaces</button>
+          <label class="checkline">
+            <input type="checkbox" id="include-fns" checked> also scan CRM Deluge functions
+          </label>
+          <button id="btn-cache" class="link hidden">Use cached scan</button>
+          <button id="btn-guide" class="link">connection setup guide</button>
+        </div>
+        <div class="guide hidden" id="guide">
+          <b>One-time setup</b> &mdash; in CRM go to Setup &gt; Developer Space &gt; Connections &gt; Create Connection, pick the <b>Zoho OAuth</b> service, then:
+          <ol>
+            <li>Create a connection with link name <code>analytics</code> and scope <code>ZohoAnalytics.metadata.read</code> (broader <code>ZohoAnalytics.fullaccess.all</code> also works), then authorize it.</li>
+            <li>Create a second connection with link name <code>crm</code> and scope <code>ZohoCRM.settings.ALL</code> (or the minimal <code>ZohoCRM.settings.functions.READ</code> if your scope picker offers it), then authorize it.</li>
+            <li>Reload this tab. Different link names are fine, just enter them above. Click any scope here to copy it.</li>
+          </ol>
+        </div>
+        <div class="progress" id="scan-progress"></div>
+        <div class="error hidden" id="setup-error"></div>
+      </div>
+
+      <!-- ============ Results ============ -->
+      <div class="cols hidden" id="results">
+        <div class="card panel-fields">
+          <h2><span class="step">2</span>Fields</h2>
+          <div class="setup-row">
+            <div>
+              <label>Module</label>
+              <select id="module-pick"></select>
+            </div>
+            <button id="btn-check-all" class="secondary">Check all fields</button>
+            <button id="btn-export" class="secondary" title="Export checked fields as CSV">Export CSV</button>
+          </div>
+          <div class="filter-row" id="field-filters"></div>
+          <input type="text" id="field-search" placeholder="Filter fields&hellip;" style="width:100%; margin-top:8px">
+          <div class="progress" id="check-progress"></div>
+          <div id="field-list"></div>
+        </div>
+
+        <div class="card panel-detail">
+          <h2 id="detail-title"><span class="step">3</span>Usage</h2>
+          <div id="detail-body"><p class="section-note">Select a field on the left, or run "Check all fields".</p></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="js/state.js"></script>
+    <script src="js/helpers.js"></script>
+    <script src="js/loader.js"></script>
+    <script src="js/settings.js"></script>
+    <script src="js/scan.js"></script>
+    <script src="js/fields.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
