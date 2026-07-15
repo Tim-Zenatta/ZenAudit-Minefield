@@ -17,6 +17,8 @@ var S = {
   activeField: null,
   scannedAt: null,
   checking: false,
+  scanning: false,
+  sdkReady: false,
   filter: "all",
   crmZgid: null
 };

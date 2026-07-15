@@ -22,9 +22,11 @@ function restoreSettings() {
     applyTheme(s.theme === "light" ? "light" : "dark");
   } catch (e) { /* ignore bad cache */ }
 }
-$("conn-analytics").onchange = saveSettings;
+// Changing the Analytics connection or data center re-resolves orgs and
+// workspaces automatically (loadOrgs is defined in scan.js, loaded later).
+$("conn-analytics").onchange = function () { saveSettings(); if (S.sdkReady) loadOrgs(); };
 $("conn-crm").onchange = saveSettings;
-$("dc").onchange = saveSettings;
+$("dc").onchange = function () { saveSettings(); if (S.sdkReady) loadOrgs(); };
 
 var THEME = "dark";
 function applyTheme(t) {
@@ -40,7 +42,7 @@ $("theme-toggle").onclick = function () {
 $("btn-toggle-setup").onclick = function () {
   var card = $("setup-card");
   card.classList.toggle("collapsed");
-  this.textContent = card.classList.contains("collapsed") ? "show settings" : "hide settings";
+  this.textContent = card.classList.contains("collapsed") ? "Settings" : "Hide settings";
 };
 $("btn-guide").onclick = function () { $("guide").classList.toggle("hidden"); };
 // Click any scope chip to copy it for the connection form

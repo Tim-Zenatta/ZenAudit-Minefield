@@ -185,11 +185,11 @@ function renderDetail(f) {
     ].filter(function (b) { return b.n > 0; }).map(function (b) {
       return "<span class='vb'>" + iconFor(b.icon) + "<b>" + b.n + "</b>&nbsp;" + b.label + "</span>";
     }).join("");
-    html += "<div class='verdict used'><b>Used in " + n + " place" + (n > 1 ? "s" : "") +
-      "</b>. Update or retire these before deleting the field." +
-      "<div class='verdict-breakdown'>" + breakdown + "</div>" +
+    html += "<div class='verdict used'><div class='vnum'>" + n + "</div>" +
+      "<div class='vmain'><b>place" + (n > 1 ? "s" : "") + " use this field</b>" +
       "<small>" + (r.notSynced ? "Not synced to Analytics; found in CRM Deluge code only. " : "") +
-      "Scope: " + scope + ".</small></div>";
+      "Update or retire these before deleting. Scope: " + scope + ".</small></div>" +
+      "<div class='verdict-breakdown'>" + breakdown + "</div></div>";
   } else if (r.notSynced) {
     html += "<div class='verdict na'><b>Not found in Analytics" +
       (S.functionsScanned ? " or CRM Deluge functions" : "") + ".</b><small>No synced column named like &ldquo;" +
@@ -210,7 +210,8 @@ function renderDetail(f) {
     }
     var total = c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
     if (!total) return;
-    html += "<h3 class='usage-group'>Column &ldquo;" + esc(c.columnName) + "&rdquo; in " + esc(where) + "</h3>";
+    html += "<h3 class='usage-group'>Column &ldquo;" + esc(c.columnName) + "&rdquo; in " + esc(where) +
+      " <span class='gcount'>" + total + (total > 1 ? " items" : " item") + "</span></h3>";
     // Dashboard KPI widgets come back as bare numeric IDs; collapse them
     // into a count instead of showing meaningless rows.
     var named = c.dep.views.filter(function (v) {
@@ -233,13 +234,14 @@ function renderDetail(f) {
     }).join("");
   });
   if (r.sql.length) {
-    html += "<h3 class='usage-group'>Query table SQL matches</h3>";
+    html += "<h3 class='usage-group'>Query table SQL matches <span class='gcount'>" + r.sql.length + "</span></h3>";
     html += r.sql.map(function (h) {
       return usageCard("QueryTable", h.viewName, h.wsName, viewLink(h.wsId, h.viewId), h.snippet);
     }).join("");
   }
   if ((r.functions || []).length) {
-    html += "<h3 class='usage-group'>CRM Deluge functions referencing " + esc(f.api_name) + "</h3>";
+    html += "<h3 class='usage-group'>CRM Deluge functions referencing " + esc(f.api_name) +
+      " <span class='gcount'>" + r.functions.length + (r.functions.length > 1 ? " functions" : " function") + "</span></h3>";
     html += r.functions.map(function (h) {
       return usageCard("function" + (h.count > 1 ? " (" + h.count + " references)" : ""),
         h.name, null, functionsPageUrl(), h.snippet, "Open Functions page &rarr;");
