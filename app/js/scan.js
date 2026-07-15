@@ -7,9 +7,11 @@
 function loadOrgs() {
   clearError();
   S.orgId = null;
+  var pick = $("org-pick");
+  pick.disabled = true;
+  pick.innerHTML = "<option>loading orgs&hellip;</option>";
   return analyticsGet("/orgs").then(function (body) {
     var orgs = (body.data && body.data.orgs) || [];
-    var pick = $("org-pick");
     pick.innerHTML = "";
     orgs.forEach(function (o) {
       var opt = document.createElement("option");
@@ -17,16 +19,15 @@ function loadOrgs() {
       pick.appendChild(opt);
     });
     pick.disabled = false;
-    $("btn-workspaces").disabled = false;
     saveSettings();
-    if (orgs.length === 1) return loadWorkspaces();
+    if (orgs.length) return loadWorkspaces();
   }).catch(function (err) {
     showError("Could not reach Zoho Analytics through connection \"" +
       $("conn-analytics").value + "\". Check the connection link name and that it is authorized.\n" +
       String(err && err.message || err));
   });
 }
-$("btn-orgs").onclick = loadOrgs;
+$("org-pick").onchange = function () { loadWorkspaces(); };
 
 function loadWorkspaces() {
   clearError();
@@ -48,29 +49,80 @@ function loadWorkspaces() {
       cb.onchange = function () {
         S.workspaces[i].selected = cb.checked;
         lab.classList.toggle("on", cb.checked);
+        updateScanButton();
       };
       lab.appendChild(cb);
       lab.appendChild(document.createTextNode(w.workspaceName));
       box.appendChild(lab);
     });
-    $("btn-scan").disabled = false;
+    updateScanButton();
   }).catch(function (err) { showError(String(err && err.message || err)); });
 }
-$("btn-workspaces").onclick = loadWorkspaces;
+
+function selectedWorkspaces() {
+  return S.workspaces.filter(function (w) { return w.selected; });
+}
+
+// Source toggle tiles: keep the tile styling in sync and refresh the button
+["include-an", "include-fns"].forEach(function (id) {
+  var cb = $(id);
+  cb.onchange = function () {
+    cb.closest(".src-tile").classList.toggle("on", cb.checked);
+    updateScanButton();
+  };
+});
+
+// The scan button reads as "Scan 2 sources · 4 workspaces" and stays
+// disabled until at least one runnable source is ready.
+function updateScanButton() {
+  var an = $("include-an").checked, fns = $("include-fns").checked;
+  var srcs = (an ? 1 : 0) + (fns ? 1 : 0);
+  var ws = selectedWorkspaces().length;
+  var label = "Scan " + srcs + (srcs === 1 ? " source" : " sources");
+  if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
+  var btn = $("btn-scan");
+  btn.textContent = srcs ? label : "Scan";
+  btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws));
+}
 
 // The scan only needs deep details for Tables (their columns carry the
 // columnIds used by the dependents API) and Query Tables (their SQL).
 // Everything else is reached through Zoho's own dependency engine.
 $("btn-scan").onclick = function () {
   clearError();
-  var targets = S.workspaces.filter(function (w) { return w.selected; });
-  if (!targets.length) { showError("Select at least one workspace."); return; }
+  var doAn = $("include-an").checked, doFns = $("include-fns").checked;
+  if (!doAn && !doFns) { showError("Turn on at least one scan source."); return; }
+  var targets = doAn ? selectedWorkspaces() : [];
+  if (doAn && !targets.length) { showError("Select at least one workspace."); return; }
+  S.scanning = true;
   $("btn-scan").disabled = true;
+  $("scan-progress").classList.remove("done");
   S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {}; S.results = {};
 
+  (doAn ? scanAnalytics(targets) : Promise.resolve()).then(function () {
+    return doFns ? scanFunctions() : null;
+  }).then(function () {
+    S.scannedAt = new Date().toLocaleString();
+    try {
+      localStorage.setItem(SCAN_KEY, JSON.stringify({
+        at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
+        tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
+        functions: S.functions, functionsScanned: S.functionsScanned
+      }));
+    } catch (e) { /* cache is best-effort */ }
+    finishScan();
+  }).catch(function (err) {
+    S.scanning = false;
+    hideLoader();
+    updateScanButton();
+    showError(String(err && err.message || err));
+  });
+};
+
+function scanAnalytics(targets) {
   showLoader("Listing Analytics views…");
   var detailTargets = [];
-  runQueue(targets, function (w) {
+  return runQueue(targets, function (w) {
     $("scan-progress").innerHTML = "Listing views in <b>" + esc(w.workspaceName) + "</b>&hellip;";
     showLoader("Listing views in “" + w.workspaceName + "”…");
     return analyticsGet("/workspaces/" + w.workspaceId + "/views", { noOfResult: 1000 })
@@ -117,24 +169,8 @@ $("btn-scan").onclick = function () {
       $("scan-progress").innerHTML = "Reading structure <b>" + i + " / " + n + "</b> &mdash; " + esc(t.view.viewName);
       showLoader("Reading structure " + i + " / " + n, n ? i / n : null);
     });
-  }).then(function () {
-    return $("include-fns").checked ? scanFunctions() : null;
-  }).then(function () {
-    S.scannedAt = new Date().toLocaleString();
-    try {
-      localStorage.setItem(SCAN_KEY, JSON.stringify({
-        at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
-        tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
-        functions: S.functions, functionsScanned: S.functionsScanned
-      }));
-    } catch (e) { /* cache is best-effort */ }
-    finishScan();
-  }).catch(function (err) {
-    hideLoader();
-    $("btn-scan").disabled = false;
-    showError(String(err && err.message || err));
   });
-};
+}
 
 // Invoke without the JSON-failure check: /code returns raw file content
 // whose shape through CONNECTION.invoke is not a normal JSON body.
@@ -245,18 +281,24 @@ $("btn-cache").onclick = function () {
 };
 
 function finishScan() {
+  S.scanning = false;
   hideLoader();
   var colCount = S.tables.reduce(function (n, t) { return n + t.columns.length; }, 0);
-  $("scan-progress").innerHTML = "Scan complete (" + S.scannedAt + "): <b>" + S.viewCount +
-    "</b> views seen, <b>" + S.tables.length + "</b> tables (" + colCount + " columns), <b>" +
-    S.queryTables.length + "</b> query tables" +
-    (S.functionsScanned ? ", <b>" + S.functions.length + "</b> CRM Deluge functions." : ". Functions not scanned.");
-  $("btn-scan").disabled = false;
-  $("btn-scan").textContent = "Rescan";
+  var stats = [
+    "<b>" + S.viewCount + "</b> views",
+    "<b>" + S.tables.length + "</b> tables (" + colCount + " columns)",
+    "<b>" + S.queryTables.length + "</b> query " + (S.queryTables.length === 1 ? "table" : "tables")
+  ];
+  if (S.functionsScanned) stats.push("<b>" + S.functions.length + "</b> functions");
+  var p = $("scan-progress");
+  p.classList.add("done");
+  p.innerHTML = "<b>Last scan · " + esc(S.scannedAt) + "</b>" +
+    "<span class='scan-stats'>" + stats.join(" · ") + "</span>";
+  updateScanButton();
   $("results").classList.remove("hidden");
   $("setup-card").classList.add("collapsed");
   var t = $("btn-toggle-setup");
   t.classList.remove("hidden");
-  t.textContent = "show settings";
+  t.textContent = "Settings";
   loadFields();
 }

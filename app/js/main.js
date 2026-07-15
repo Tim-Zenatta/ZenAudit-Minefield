@@ -4,8 +4,9 @@
 
 ZOHO.embeddedApp.on("PageLoad", function () {
   $("sdk-tag").textContent = "SDK ready";
-  $("btn-orgs").disabled = false;
+  S.sdkReady = true;
   restoreSettings();
+  updateScanButton();
   loadModules();
   showLoader(bootLine);
   loadOrgs().then(endBoot, endBoot); // errors surface in the setup card
@@ -18,7 +19,7 @@ ZOHO.embeddedApp.on("PageLoad", function () {
     var c = JSON.parse(raw);
     var b = $("btn-cache");
     b.classList.remove("hidden");
-    b.textContent = "Use cached scan (" + c.at + ")";
+    b.textContent = "Use cached scan · " + c.at;
   }
 });
 // The mini loader reuses the same otter artwork
