@@ -97,10 +97,24 @@ function functionHits(field) {
   return hits;
 }
 
+// Zoho's native CRM-Books sync mapping isn't readable via API, so this is a
+// name match against Books custom and standard fields, purely informational
+// (see scan.js BOOKS_ENTITIES/STANDARD_BOOKS_FIELDS). Never affects hitCount/categoryOf.
+function bookMatches(field) {
+  if (!S.booksScanned) return [];
+  var wanted = {}; wanted[norm(field.label)] = 1; wanted[norm(field.api_name)] = 1;
+  return S.booksFields.filter(function (bf) {
+    return wanted[norm(bf.label)] || wanted[norm(bf.apiName)];
+  });
+}
+
 function checkField(field) {
   if (S.results[field.api_name]) return Promise.resolve(S.results[field.api_name]);
   var matches = moduleTableFirst(field);
-  var result = { columns: [], sql: sqlHits(field), functions: functionHits(field), notSynced: matches.length === 0 };
+  var result = {
+    columns: [], sql: sqlHits(field), functions: functionHits(field), books: bookMatches(field),
+    notSynced: matches.length === 0
+  };
   return runQueue(matches, function (m) {
     return getDependents(m).then(function (dep) {
       result.columns.push({
@@ -142,5 +156,5 @@ function usageCounts(r) {
     if (!c.dep) return;
     an += c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
   });
-  return { analytics: an, functions: fn };
+  return { analytics: an, functions: fn, books: (r.books || []).length };
 }

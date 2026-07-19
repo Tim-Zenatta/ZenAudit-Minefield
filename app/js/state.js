@@ -9,6 +9,9 @@ var S = {
   queryTables: [],    // {wsId, wsName, viewId, viewName, sql}
   functions: [],      // {id, name, code}
   functionsScanned: false,
+  booksOrgId: null,
+  booksFields: [],    // {entity, entityLabel, fieldId, label, apiName}
+  booksScanned: false,
   viewCount: 0,
   modules: [],
   fields: [],

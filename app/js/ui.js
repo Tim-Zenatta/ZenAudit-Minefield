@@ -25,6 +25,8 @@ function iconFor(vtype) {
     return svgIcon("<rect x='2' y='11' width='4' height='7' rx='1' fill='#f59e0b'/><rect x='8' y='5' width='4' height='13' rx='1' fill='#e4576a'/><rect x='14' y='8' width='4' height='10' rx='1' fill='#3b82f6'/>");
   if (t.indexOf("dashboard") >= 0)
     return svgIcon("<rect x='2' y='2' width='7' height='7' rx='1.5' fill='#e4576a'/><rect x='11' y='2' width='7' height='7' rx='1.5' fill='#f59e0b'/><rect x='2' y='11' width='7' height='7' rx='1.5' fill='#3b82f6'/><rect x='11' y='11' width='7' height='7' rx='1.5' fill='#22a565'/>");
+  if (t.indexOf("books") >= 0)
+    return svgIcon("<rect x='1' y='1' width='18' height='18' rx='4' fill='#16a34a'/><text x='10' y='14.5' font-size='11' font-weight='bold' font-family='Raleway,sans-serif' fill='#fff' text-anchor='middle'>B</text>");
   if (t.indexOf("tabular") >= 0 || t.indexOf("table") >= 0)
     return svgIcon("<rect x='2' y='3' width='16' height='14' rx='1.5' fill='none' stroke='#64748b' stroke-width='1.6'/><rect x='2' y='3' width='16' height='4.5' fill='#64748b'/><path d='M2 12h16M8 7.5v9.5M13 7.5v9.5' stroke='#64748b' stroke-width='1.6'/>");
   return svgIcon("<rect x='4' y='2' width='12' height='16' rx='2' fill='none' stroke='#64748b' stroke-width='1.6'/><path d='M7 7h6M7 10.5h6M7 14h4' stroke='#64748b' stroke-width='1.6' stroke-linecap='round'/>");
@@ -32,24 +34,35 @@ function iconFor(vtype) {
 
 function chipFor(f) {
   var cat = categoryOf(f);
-  if (cat === "unchecked") return "<span class='chips'><span class='chip unchecked'>&mdash;</span></span>";
-  if (cat === "na") {
-    return "<span class='chips'><span class='chip na' title='No matching column exists in the scanned Analytics workspaces" +
-      (S.functionsScanned ? ", and no CRM function references it" : "") + "'>" + naLabel() + "</span></span>";
+  var out;
+  if (cat === "unchecked") {
+    out = "<span class='chip unchecked'>&mdash;</span>";
+  } else if (cat === "na") {
+    out = "<span class='chip na' title='No matching column exists in the scanned Analytics workspaces" +
+      (S.functionsScanned ? ", and no CRM function references it" : "") + "'>" + naLabel() + "</span>";
+  } else if (cat === "clear") {
+    out = "<span class='chip clear' title='Synced to Analytics, but nothing depends on the column" +
+      (S.functionsScanned ? ", and no CRM function references it" : "") + "'>unused</span>";
+  } else {
+    var u = usageCounts(S.results[f.api_name]);
+    out = "";
+    if (u.analytics > 0) {
+      out += "<span class='chip src-an' title='" + u.analytics + " Analytics usage" +
+        (u.analytics > 1 ? "s" : "") + "'>" + iconFor("chart") + u.analytics + "</span>";
+    }
+    if (u.functions > 0) {
+      out += "<span class='chip src-fn' title='" + u.functions + " CRM function reference" +
+        (u.functions > 1 ? "s" : "") + "'>" + iconFor("function") + u.functions + "</span>";
+    }
   }
-  if (cat === "clear") {
-    return "<span class='chips'><span class='chip clear' title='Synced to Analytics, but nothing depends on the column" +
-      (S.functionsScanned ? ", and no CRM function references it" : "") + "'>unused</span></span>";
-  }
-  var u = usageCounts(S.results[f.api_name]);
-  var out = "";
-  if (u.analytics > 0) {
-    out += "<span class='chip src-an' title='" + u.analytics + " Analytics usage" +
-      (u.analytics > 1 ? "s" : "") + "'>" + iconFor("chart") + u.analytics + "</span>";
-  }
-  if (u.functions > 0) {
-    out += "<span class='chip src-fn' title='" + u.functions + " CRM function reference" +
-      (u.functions > 1 ? "s" : "") + "'>" + iconFor("function") + u.functions + "</span>";
+  // Books is informational and matched by name only, so it's shown alongside
+  // any verdict chip instead of factoring into categoryOf.
+  if (cat !== "unchecked" && S.booksScanned) {
+    var bn = (S.results[f.api_name].books || []).length;
+    if (bn > 0) {
+      out += "<span class='chip src-books' title='" + bn + " matching Zoho Books field" + (bn > 1 ? "s" : "") +
+        " by name (informational, does not affect this verdict)'>" + iconFor("books") + bn + "</span>";
+    }
   }
   return "<span class='chips'>" + out + "</span>";
 }
@@ -122,7 +135,7 @@ $("btn-check-all").onclick = function () {
 
 $("btn-export").onclick = function () {
   var mod = $("module-pick").selectedOptions[0].textContent;
-  var rows = [["Module", "Field", "API Name", "Type", "Custom", "Verdict", "Hits", "Used In"]];
+  var rows = [["Module", "Field", "API Name", "Type", "Custom", "Verdict", "Hits", "Used In", "Books Matches (informational)"]];
   S.fields.forEach(function (f) {
     var cat = categoryOf(f);
     if (cat === "unchecked") return;
@@ -139,8 +152,9 @@ $("btn-export").onclick = function () {
     var verdict = cat === "used" ? "In use"
       : cat === "na" ? (S.functionsScanned ? "Not synced (absent from Analytics, no function references)" : "Not in Analytics")
       : "Unused (synced to Analytics, nothing depends on it)";
+    var booksMatches = (r.books || []).map(function (b) { return b.entityLabel + ": " + b.label; }).join("; ");
     rows.push([mod, f.label, f.api_name, f.type, f.custom ? "yes" : "no",
-      verdict, String(cat === "used" ? hitCount(r) : 0), uses.join("; ")]);
+      verdict, String(cat === "used" ? hitCount(r) : 0), uses.join("; "), booksMatches]);
   });
   if (rows.length === 1) { $("check-progress").textContent = "Nothing to export yet: check some fields first."; return; }
   var csv = rows.map(function (r) {
@@ -167,7 +181,8 @@ function renderDetail(f) {
   var html = "";
   var n = hitCount(r);
   var scope = S.tables.length + " tables / " + S.queryTables.length + " query tables" +
-    (S.functionsScanned ? " / " + S.functions.length + " functions" : "") + " scanned on " + S.scannedAt;
+    (S.functionsScanned ? " / " + S.functions.length + " functions" : "") +
+    (S.booksScanned ? " / " + S.booksFields.length + " Books fields" : "") + " scanned on " + S.scannedAt;
   if (n > 0) {
     var depViews = 0, cfCount = 0, afCount = 0;
     r.columns.forEach(function (c) {
@@ -245,6 +260,16 @@ function renderDetail(f) {
     html += r.functions.map(function (h) {
       return usageCard("function" + (h.count > 1 ? " (" + h.count + " references)" : ""),
         h.name, null, functionsPageUrl(), h.snippet, "Open Functions page &rarr;");
+    }).join("");
+  }
+  if ((r.books || []).length) {
+    html += "<h3 class='usage-group'>Zoho Books fields matching by name <span class='gcount'>" +
+      r.books.length + "</span></h3>" +
+      "<p class='section-note'>Informational only. Zoho's native CRM-Books sync mapping isn't readable via API, " +
+      "so these are name matches against Books custom and standard fields and do not affect the verdict above.</p>";
+    html += r.books.map(function (b) {
+      return usageCard("Books " + b.entityLabel, b.label + " (" + b.apiName + ")",
+        b.standard ? "standard field" : "custom field", null, "");
     }).join("");
   }
   $("detail-body").innerHTML = html + detailFooter(f);
