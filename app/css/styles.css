@@ -122,6 +122,12 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
   letter-spacing: .1em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
   background: #DDE0E1; color: #6b7671;
 }
+.src-divider { border: none; border-top: 1px solid #E8ECEA; margin: 12px 0; }
+.src-grid-audit { grid-template-columns: 1fr; margin-bottom: 10px; }
+.audit-tile.on { background: #fff3d6; border-color: #c98a00; box-shadow: 0 2px 10px rgba(201, 138, 0, .15); }
+.audit-tile.on .src-icon { background: #c98a00; color: #fff; }
+.audit-tile input:checked ~ .switch { background: #c98a00; }
+.src-tile.disabled-tile { opacity: .45; pointer-events: none; }
 .col-run { flex: 0 0 280px; display: flex; flex-direction: column; gap: 10px; }
 .col-run #btn-scan { width: 100%; padding: 11px 16px; font-size: 13.5px; }
 .col-run #btn-cache { width: 100%; }
@@ -138,6 +144,8 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
   .col-sources { border: 0; padding: 0; }
 }
 #ws-section { margin-top: 20px; }
+#folder-section { margin-top: 20px; }
+#ws-section > label, #folder-section > label { font-size: 12.5px; margin-bottom: 8px; }
 #ws-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; max-height: 110px; overflow: auto; }
 #ws-list label { font-size: 12px; color: #222; display: flex; gap: 6px; align-items: center; margin: 0; }
 .progress { font-size: 12px; color: #6b7671; margin-top: 12px; }
@@ -327,6 +335,14 @@ body.dark .src-meta small { color: #9fb4a9; }
 body.dark .switch { background: #2e4237; }
 body.dark .src-tile input:checked ~ .switch { background: var(--zen-mint); }
 body.dark .src-tile input:checked ~ .switch::after { background: #04140d; box-shadow: none; }
+body.dark .src-divider { border-color: #1d2b24; }
+body.dark .audit-tile.on {
+  background: rgba(251, 191, 36, .1); border-color: rgba(251, 191, 36, .5);
+  box-shadow: 0 2px 14px rgba(251, 191, 36, .12);
+}
+body.dark .audit-tile.on .src-icon { background: #fbbf24; color: #04140d; }
+body.dark .audit-tile input:checked ~ .switch { background: #fbbf24; }
+body.dark .audit-tile input:checked ~ .switch::after { background: #04140d; box-shadow: none; }
 body.dark .src-tile.soon { opacity: .65; }
 body.dark .soon-badge { background: #24352c; color: #9fb4a9; }
 body.dark .field-row { background: #0b1310; border-color: #1d2b24; }

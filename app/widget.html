@@ -212,9 +212,26 @@
               <span class="soon-badge">Soon</span>
             </div>
           </div>
+          <hr class="src-divider">
+          <div class="src-grid src-grid-audit">
+            <label class="src-tile audit-tile" id="tile-reverse-audit">
+              <span class="src-icon"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3">
+                  <path d="M7 1.3 12.8 11.7 H1.2 Z" stroke-linejoin="round" />
+                  <path d="M7 5.4v3" stroke-linecap="round" />
+                  <circle cx="7" cy="9.6" r="0.15" fill="currentColor" stroke-width="1" />
+                </svg></span>
+              <span class="src-meta"><b>Reverse Analytics Audit</b>
+                <small>If your Analytics sync broke and you don't know why, start here.</small></span>
+              <input type="checkbox" id="include-reverse-audit"><span class="switch"></span>
+            </label>
+          </div>
           <div id="ws-section" class="hidden">
             <label>Analytics workspaces &mdash; click to include or exclude</label>
             <div id="ws-list"></div>
+          </div>
+          <div id="folder-section" class="hidden">
+            <label>Analytics folders &mdash; Select to Include - typical folder path selected by default</label>
+            <div id="folder-list"></div>
           </div>
         </div>
 
@@ -272,6 +289,18 @@
         </div>
       </div>
     </div>
+
+    <!-- ============ Reverse Analytics Audit results ============ -->
+    <div class="card hidden" id="reverse-audit-card">
+      <h2><span class="step">2</span>Reverse Analytics Audit</h2>
+      <p class="section-note">Analytics tables matched by name to a CRM module, and which columns in each have no
+        matching CRM field. Informational: this doesn't check whether those columns are still used anywhere.</p>
+      <div class="setup-row">
+        <button class="secondary hidden" id="btn-reverse-audit-export" title="Export unmatched columns as CSV">Export
+          CSV</button>
+      </div>
+      <div id="reverse-audit-results"></div>
+    </div>
   </div>
 
   <script src="js/state.js"></script>
@@ -281,6 +310,7 @@
   <script src="js/scan.js"></script>
   <script src="js/fields.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/reverse-audit.js"></script>
   <script src="js/main.js"></script>
 </body>
 

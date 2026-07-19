@@ -38,7 +38,6 @@ function loadWorkspaces() {
     S.workspaces = all.map(function (w) {
       return { workspaceId: w.workspaceId, workspaceName: w.workspaceName, selected: true };
     });
-    $("ws-section").classList.remove("hidden");
     var box = $("ws-list");
     box.innerHTML = "";
     S.workspaces.forEach(function (w, i) {
@@ -50,13 +49,86 @@ function loadWorkspaces() {
         S.workspaces[i].selected = cb.checked;
         lab.classList.toggle("on", cb.checked);
         updateScanButton();
+        renderFolderList();
       };
       lab.appendChild(cb);
       lab.appendChild(document.createTextNode(w.workspaceName));
       box.appendChild(lab);
     });
     updateScanButton();
+    updateSelectorVisibility();
+    return loadFolders();
   }).catch(function (err) { showError(String(err && err.message || err)); });
+}
+
+// The workspace/folder pickers only matter for the reverse audit (that's
+// where a mixed workspace's cross-app noise actually causes problems), so
+// they stay hidden otherwise to keep the normal scan card uncluttered.
+// Selection state itself isn't reset when hidden, it still governs
+// scanAnalytics() either way.
+function updateSelectorVisibility() {
+  var show = $("include-reverse-audit").checked;
+  $("ws-section").classList.toggle("hidden", !show || !S.workspaces.length);
+  renderFolderList();
+}
+
+// One workspace can mix tables from several apps (e.g. a consolidated "Zoho
+// One" workspace), which confuses both this and the reverse audit's name
+// matching. Folders are a natural scoping boundary for that, best-effort:
+// if a workspace's folders can't be read, scanning it stays unfiltered
+// rather than silently excluding everything. Default to only the CRM data
+// folder selected, since that's the one real signal to trust automatically;
+// everything else needs an explicit opt-in.
+function loadFolders() {
+  S.folders = [];
+  return runQueue(S.workspaces, function (w) {
+    return analyticsGet("/workspaces/" + w.workspaceId + "/folders").then(function (body) {
+      var folders = (body.data && body.data.folders) || [];
+      folders.forEach(function (f) {
+        S.folders.push({
+          folderId: f.folderId, folderName: f.folderName,
+          wsId: w.workspaceId, wsName: w.workspaceName,
+          selected: f.folderName.toLowerCase().indexOf("zoho crm modules (data)") >= 0
+        });
+      });
+    }).catch(function () { /* best-effort; that workspace just scans unfiltered */ });
+  }).then(renderFolderList);
+}
+
+function renderFolderList() {
+  var section = $("folder-section");
+  var show = $("include-reverse-audit").checked;
+  var visible = S.folders.filter(function (f) {
+    var ws = S.workspaces.filter(function (w) { return w.workspaceId === f.wsId; })[0];
+    return ws && ws.selected;
+  }).sort(function (a, b) { return (b.selected ? 1 : 0) - (a.selected ? 1 : 0); });
+  if (!show || !visible.length) { section.classList.add("hidden"); return; }
+  section.classList.remove("hidden");
+  var box = $("folder-list");
+  box.innerHTML = "";
+  visible.forEach(function (f) {
+    var lab = document.createElement("label");
+    lab.className = "ws-pill" + (f.selected ? " on" : "");
+    var cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = f.selected;
+    cb.onchange = function () {
+      f.selected = cb.checked;
+      lab.classList.toggle("on", cb.checked);
+      renderFolderList();
+    };
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(f.wsName + " / " + f.folderName));
+    box.appendChild(lab);
+  });
+}
+
+// Only filters a workspace's views if we actually have folder data for it;
+// an unread folder list or an unrecognized folderId never blocks scanning.
+function folderAllowed(wsId, folderId) {
+  var wsFolders = S.folders.filter(function (f) { return f.wsId === wsId; });
+  if (!wsFolders.length) return true;
+  var match = wsFolders.filter(function (f) { return f.folderId === folderId; })[0];
+  return match ? match.selected : true;
 }
 
 function selectedWorkspaces() {
@@ -78,15 +150,41 @@ $("include-books").onchange = function () {
   if (cb.checked && S.sdkReady && !S.booksOrgId) loadBooksOrgs();
 };
 
+// The reverse audit is a different operation (Analytics -> CRM instead of
+// CRM -> Analytics) that runs standalone; selecting it locks out the normal
+// scan sources rather than combining with them.
+$("include-reverse-audit").onchange = function () {
+  var cb = $("include-reverse-audit");
+  var exclusive = cb.checked;
+  ["include-an", "include-fns", "include-books"].forEach(function (id) {
+    var other = $(id);
+    other.disabled = exclusive;
+    other.closest(".src-tile").classList.toggle("disabled-tile", exclusive);
+    if (exclusive && other.checked) {
+      other.checked = false;
+      other.dispatchEvent(new Event("change"));
+    }
+  });
+  cb.closest(".src-tile").classList.toggle("on", cb.checked);
+  updateScanButton();
+  updateSelectorVisibility();
+};
+
 // The scan button reads as "Scan 2 sources · 4 workspaces" and stays
-// disabled until at least one runnable source is ready.
+// disabled until at least one runnable source is ready. In reverse-audit
+// mode it reads "Run reverse audit · N workspaces" instead.
 function updateScanButton() {
+  var btn = $("btn-scan");
+  var ws = selectedWorkspaces().length;
+  if ($("include-reverse-audit").checked) {
+    btn.textContent = "Run reverse audit" + (ws ? " · " + ws + (ws === 1 ? " workspace" : " workspaces") : "");
+    btn.disabled = !!(S.scanning || !S.sdkReady || !ws);
+    return;
+  }
   var an = $("include-an").checked, fns = $("include-fns").checked, books = $("include-books").checked;
   var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (books ? 1 : 0);
-  var ws = selectedWorkspaces().length;
   var label = "Scan " + srcs + (srcs === 1 ? " source" : " sources");
   if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
-  var btn = $("btn-scan");
   btn.textContent = srcs ? label : "Scan";
   btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws) || (books && !S.booksOrgId));
 }
@@ -179,6 +277,36 @@ function loadBooksOrgs() {
 // Everything else is reached through Zoho's own dependency engine.
 $("btn-scan").onclick = function () {
   clearError();
+
+  if ($("include-reverse-audit").checked) {
+    var wsTargets = selectedWorkspaces();
+    if (!wsTargets.length) { showError("Select at least one workspace."); return; }
+    S.scanning = true;
+    $("btn-scan").disabled = true;
+    $("scan-progress").classList.remove("done");
+    S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {};
+    scanAnalytics(wsTargets).then(function () {
+      S.scannedAt = new Date().toLocaleString();
+      return runReverseAudit();
+    }).then(function () {
+      S.scanning = false;
+      hideLoader();
+      updateScanButton();
+      $("setup-card").classList.add("collapsed");
+      var t = $("btn-toggle-setup");
+      t.classList.remove("hidden");
+      t.textContent = "Settings";
+      $("results").classList.add("hidden");
+      $("reverse-audit-card").classList.remove("hidden");
+    }).catch(function (err) {
+      S.scanning = false;
+      hideLoader();
+      updateScanButton();
+      showError(String(err && err.message || err));
+    });
+    return;
+  }
+
   var doAn = $("include-an").checked, doFns = $("include-fns").checked, doBooks = $("include-books").checked;
   if (!doAn && !doFns && !doBooks) { showError("Turn on at least one scan source."); return; }
   var targets = doAn ? selectedWorkspaces() : [];
@@ -258,8 +386,9 @@ function scanAnalytics(targets) {
     return analyticsGet("/workspaces/" + w.workspaceId + "/views", { noOfResult: 1000 })
       .then(function (body) {
         var views = (body.data && body.data.views) || [];
-        S.viewCount += views.length;
         views.forEach(function (v) {
+          if (!folderAllowed(w.workspaceId, v.folderId)) return;
+          S.viewCount++;
           if (v.viewType === "Table" || v.viewType === "QueryTable") {
             detailTargets.push({ ws: w, view: v });
           }
@@ -275,7 +404,11 @@ function scanAnalytics(targets) {
               wsId: t.ws.workspaceId, wsName: t.ws.workspaceName,
               viewId: t.view.viewId, viewName: t.view.viewName,
               columns: (d.columns || []).map(function (c) {
-                return { columnId: c.columnId, columnName: c.columnName };
+                return {
+                  columnId: c.columnId, columnName: c.columnName,
+                  dataType: c.dataTypeName || c.dataType || null,
+                  formula: c.formulaDisplayName || ""
+                };
               })
             });
           } else {
@@ -428,6 +561,7 @@ function finishScan() {
     "<span class='scan-stats'>" + stats.join(" · ") + "</span>";
   updateScanButton();
   $("results").classList.remove("hidden");
+  $("reverse-audit-card").classList.add("hidden");
   $("setup-card").classList.add("collapsed");
   var t = $("btn-toggle-setup");
   t.classList.remove("hidden");
