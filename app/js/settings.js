@@ -7,7 +7,8 @@ var SETTINGS_KEY = "fieldcheck.settings.v1";
 function saveSettings() {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-      conn: $("conn-analytics").value, crmConn: $("conn-crm").value, dc: $("dc").value, theme: THEME
+      conn: $("conn-analytics").value, crmConn: $("conn-crm").value, booksConn: $("conn-books").value,
+      includeBooks: $("include-books").checked, dc: $("dc").value, theme: THEME
     }));
   } catch (e) { /* best-effort */ }
 }
@@ -18,6 +19,11 @@ function restoreSettings() {
     var s = JSON.parse(raw);
     if (s.conn) $("conn-analytics").value = s.conn;
     if (s.crmConn) $("conn-crm").value = s.crmConn;
+    if (s.booksConn) $("conn-books").value = s.booksConn;
+    if (s.includeBooks) {
+      $("include-books").checked = true;
+      $("include-books").closest(".src-tile").classList.add("on");
+    }
     if (s.dc) $("dc").value = s.dc;
     applyTheme(s.theme === "light" ? "light" : "dark");
   } catch (e) { /* ignore bad cache */ }
@@ -26,6 +32,11 @@ function restoreSettings() {
 // workspaces automatically (loadOrgs is defined in scan.js, loaded later).
 $("conn-analytics").onchange = function () { saveSettings(); if (S.sdkReady) loadOrgs(); };
 $("conn-crm").onchange = saveSettings;
+$("conn-books").onchange = function () {
+  saveSettings();
+  S.booksOrgId = null;
+  if (S.sdkReady && $("include-books").checked) loadBooksOrgs();
+};
 $("dc").onchange = function () { saveSettings(); if (S.sdkReady) loadOrgs(); };
 
 var THEME = "dark";

@@ -38,7 +38,6 @@ function loadWorkspaces() {
     S.workspaces = all.map(function (w) {
       return { workspaceId: w.workspaceId, workspaceName: w.workspaceName, selected: true };
     });
-    $("ws-section").classList.remove("hidden");
     var box = $("ws-list");
     box.innerHTML = "";
     S.workspaces.forEach(function (w, i) {
@@ -50,13 +49,86 @@ function loadWorkspaces() {
         S.workspaces[i].selected = cb.checked;
         lab.classList.toggle("on", cb.checked);
         updateScanButton();
+        renderFolderList();
       };
       lab.appendChild(cb);
       lab.appendChild(document.createTextNode(w.workspaceName));
       box.appendChild(lab);
     });
     updateScanButton();
+    updateSelectorVisibility();
+    return loadFolders();
   }).catch(function (err) { showError(String(err && err.message || err)); });
+}
+
+// The workspace/folder pickers only matter for the reverse audit (that's
+// where a mixed workspace's cross-app noise actually causes problems), so
+// they stay hidden otherwise to keep the normal scan card uncluttered.
+// Selection state itself isn't reset when hidden, it still governs
+// scanAnalytics() either way.
+function updateSelectorVisibility() {
+  var show = $("include-reverse-audit").checked;
+  $("ws-section").classList.toggle("hidden", !show || !S.workspaces.length);
+  renderFolderList();
+}
+
+// One workspace can mix tables from several apps (e.g. a consolidated "Zoho
+// One" workspace), which confuses both this and the reverse audit's name
+// matching. Folders are a natural scoping boundary for that, best-effort:
+// if a workspace's folders can't be read, scanning it stays unfiltered
+// rather than silently excluding everything. Default to only the CRM data
+// folder selected, since that's the one real signal to trust automatically;
+// everything else needs an explicit opt-in.
+function loadFolders() {
+  S.folders = [];
+  return runQueue(S.workspaces, function (w) {
+    return analyticsGet("/workspaces/" + w.workspaceId + "/folders").then(function (body) {
+      var folders = (body.data && body.data.folders) || [];
+      folders.forEach(function (f) {
+        S.folders.push({
+          folderId: f.folderId, folderName: f.folderName,
+          wsId: w.workspaceId, wsName: w.workspaceName,
+          selected: f.folderName.toLowerCase().indexOf("zoho crm modules (data)") >= 0
+        });
+      });
+    }).catch(function () { /* best-effort; that workspace just scans unfiltered */ });
+  }).then(renderFolderList);
+}
+
+function renderFolderList() {
+  var section = $("folder-section");
+  var show = $("include-reverse-audit").checked;
+  var visible = S.folders.filter(function (f) {
+    var ws = S.workspaces.filter(function (w) { return w.workspaceId === f.wsId; })[0];
+    return ws && ws.selected;
+  }).sort(function (a, b) { return (b.selected ? 1 : 0) - (a.selected ? 1 : 0); });
+  if (!show || !visible.length) { section.classList.add("hidden"); return; }
+  section.classList.remove("hidden");
+  var box = $("folder-list");
+  box.innerHTML = "";
+  visible.forEach(function (f) {
+    var lab = document.createElement("label");
+    lab.className = "ws-pill" + (f.selected ? " on" : "");
+    var cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = f.selected;
+    cb.onchange = function () {
+      f.selected = cb.checked;
+      lab.classList.toggle("on", cb.checked);
+      renderFolderList();
+    };
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(f.wsName + " / " + f.folderName));
+    box.appendChild(lab);
+  });
+}
+
+// Only filters a workspace's views if we actually have folder data for it;
+// an unread folder list or an unrecognized folderId never blocks scanning.
+function folderAllowed(wsId, folderId) {
+  var wsFolders = S.folders.filter(function (f) { return f.wsId === wsId; });
+  if (!wsFolders.length) return true;
+  var match = wsFolders.filter(function (f) { return f.folderId === folderId; })[0];
+  return match ? match.selected : true;
 }
 
 function selectedWorkspaces() {
@@ -64,25 +136,141 @@ function selectedWorkspaces() {
 }
 
 // Source toggle tiles: keep the tile styling in sync and refresh the button
-["include-an", "include-fns"].forEach(function (id) {
+["include-an", "include-fns", "include-reports"].forEach(function (id) {
   var cb = $(id);
   cb.onchange = function () {
     cb.closest(".src-tile").classList.toggle("on", cb.checked);
     updateScanButton();
   };
 });
+$("include-books").onchange = function () {
+  var cb = $("include-books");
+  cb.closest(".src-tile").classList.toggle("on", cb.checked);
+  updateScanButton();
+  if (cb.checked && S.sdkReady && !S.booksOrgId) loadBooksOrgs();
+};
+
+// The reverse audit is a different operation (Analytics -> CRM instead of
+// CRM -> Analytics) that runs standalone; selecting it locks out the normal
+// scan sources rather than combining with them.
+$("include-reverse-audit").onchange = function () {
+  var cb = $("include-reverse-audit");
+  var exclusive = cb.checked;
+  ["include-an", "include-fns", "include-books", "include-reports"].forEach(function (id) {
+    var other = $(id);
+    other.disabled = exclusive;
+    other.closest(".src-tile").classList.toggle("disabled-tile", exclusive);
+    if (exclusive && other.checked) {
+      other.checked = false;
+      other.dispatchEvent(new Event("change"));
+    }
+  });
+  cb.closest(".src-tile").classList.toggle("on", cb.checked);
+  updateScanButton();
+  updateSelectorVisibility();
+};
 
 // The scan button reads as "Scan 2 sources · 4 workspaces" and stays
-// disabled until at least one runnable source is ready.
+// disabled until at least one runnable source is ready. In reverse-audit
+// mode it reads "Run reverse audit · N workspaces" instead.
 function updateScanButton() {
-  var an = $("include-an").checked, fns = $("include-fns").checked;
-  var srcs = (an ? 1 : 0) + (fns ? 1 : 0);
+  var btn = $("btn-scan");
   var ws = selectedWorkspaces().length;
+  if ($("include-reverse-audit").checked) {
+    btn.textContent = "Run reverse audit" + (ws ? " · " + ws + (ws === 1 ? " workspace" : " workspaces") : "");
+    btn.disabled = !!(S.scanning || !S.sdkReady || !ws);
+    return;
+  }
+  var an = $("include-an").checked, fns = $("include-fns").checked, books = $("include-books").checked,
+    reports = $("include-reports").checked;
+  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (books ? 1 : 0) + (reports ? 1 : 0);
   var label = "Scan " + srcs + (srcs === 1 ? " source" : " sources");
   if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
-  var btn = $("btn-scan");
   btn.textContent = srcs ? label : "Scan";
-  btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws));
+  btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws) || (books && !S.booksOrgId));
+}
+
+// Zoho Books has no readable API for its native CRM sync field mapping, so
+// matching falls back to comparing names against these entities' custom fields.
+var BOOKS_ENTITIES = [
+  { key: "contact", label: "Contacts (Customers/Vendors)" },
+  { key: "item", label: "Items" },
+  { key: "invoice", label: "Invoices" },
+  { key: "estimate", label: "Estimates" }
+];
+
+// Books has no schema API for its standard (non-custom) fields either, unlike
+// custom fields via /settings/fields. These are hardcoded from Books' own
+// field vocabulary purely so common fields (e.g. "Billing City") have
+// something to name-match against; still coincidental-name matching, not a
+// verified sync mapping. Labels use CRM's own terminology ("Billing Code" for
+// zip) so they line up with what a CRM field is actually called; apiName
+// reflects Books' real nested contact.billing_address/shipping_address keys
+// (address, street2, city, state, zip, country), confirmed against Zoho's
+// documented sample contact JSON.
+var STANDARD_BOOKS_FIELDS = {
+  contact: [
+    { label: "Company Name", apiName: "company_name" },
+    { label: "Email", apiName: "email" },
+    { label: "Phone", apiName: "phone" },
+    { label: "Mobile", apiName: "mobile" },
+    { label: "Website", apiName: "website" },
+    { label: "Billing Street", apiName: "billing_address.address" },
+    { label: "Billing City", apiName: "billing_address.city" },
+    { label: "Billing State", apiName: "billing_address.state" },
+    { label: "Billing Code", apiName: "billing_address.zip" },
+    { label: "Billing Country", apiName: "billing_address.country" },
+    { label: "Shipping Street", apiName: "shipping_address.address" },
+    { label: "Shipping City", apiName: "shipping_address.city" },
+    { label: "Shipping State", apiName: "shipping_address.state" },
+    { label: "Shipping Code", apiName: "shipping_address.zip" },
+    { label: "Shipping Country", apiName: "shipping_address.country" }
+  ],
+  item: [
+    { label: "Name", apiName: "name" },
+    { label: "Description", apiName: "description" },
+    { label: "SKU", apiName: "sku" },
+    { label: "Rate", apiName: "rate" },
+    { label: "Unit", apiName: "unit" }
+  ],
+  invoice: [
+    { label: "Reference Number", apiName: "reference_number" },
+    { label: "Notes", apiName: "notes" },
+    { label: "Terms", apiName: "terms" },
+    { label: "Due Date", apiName: "due_date" }
+  ],
+  estimate: [
+    { label: "Reference Number", apiName: "reference_number" },
+    { label: "Notes", apiName: "notes" },
+    { label: "Terms", apiName: "terms" },
+    { label: "Expiry Date", apiName: "expiry_date" }
+  ]
+};
+
+function loadBooksOrgs() {
+  var pick = $("books-org-pick");
+  pick.disabled = true;
+  pick.innerHTML = "<option>loading organizations&hellip;</option>";
+  return invokeConn($("conn-books").value.trim(), crmApiBase() + "/books/v3/organizations", {})
+    .then(function (body) {
+      var orgs = body.organizations || [];
+      pick.innerHTML = "";
+      orgs.forEach(function (o) {
+        var opt = document.createElement("option");
+        opt.value = o.organization_id; opt.textContent = o.name;
+        pick.appendChild(opt);
+      });
+      pick.disabled = orgs.length === 0;
+      S.booksOrgId = pick.value || null;
+      pick.onchange = function () { S.booksOrgId = pick.value || null; updateScanButton(); };
+      saveSettings();
+      updateScanButton();
+    }).catch(function (err) {
+      pick.innerHTML = "<option>could not load organizations</option>";
+      showError("Could not reach Zoho Books through connection \"" + $("conn-books").value +
+        "\". Check the connection link name and that it is authorized.\n" + String(err && err.message || err));
+      updateScanButton();
+    });
 }
 
 // The scan only needs deep details for Tables (their columns carry the
@@ -90,10 +278,42 @@ function updateScanButton() {
 // Everything else is reached through Zoho's own dependency engine.
 $("btn-scan").onclick = function () {
   clearError();
-  var doAn = $("include-an").checked, doFns = $("include-fns").checked;
-  if (!doAn && !doFns) { showError("Turn on at least one scan source."); return; }
+
+  if ($("include-reverse-audit").checked) {
+    var wsTargets = selectedWorkspaces();
+    if (!wsTargets.length) { showError("Select at least one workspace."); return; }
+    S.scanning = true;
+    $("btn-scan").disabled = true;
+    $("scan-progress").classList.remove("done");
+    S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {};
+    scanAnalytics(wsTargets).then(function () {
+      S.scannedAt = new Date().toLocaleString();
+      return runReverseAudit();
+    }).then(function () {
+      S.scanning = false;
+      hideLoader();
+      updateScanButton();
+      $("setup-card").classList.add("collapsed");
+      var t = $("btn-toggle-setup");
+      t.classList.remove("hidden");
+      t.textContent = "Settings";
+      $("results").classList.add("hidden");
+      $("reverse-audit-card").classList.remove("hidden");
+    }).catch(function (err) {
+      S.scanning = false;
+      hideLoader();
+      updateScanButton();
+      showError(String(err && err.message || err));
+    });
+    return;
+  }
+
+  var doAn = $("include-an").checked, doFns = $("include-fns").checked, doBooks = $("include-books").checked,
+    doReports = $("include-reports").checked;
+  if (!doAn && !doFns && !doBooks && !doReports) { showError("Turn on at least one scan source."); return; }
   var targets = doAn ? selectedWorkspaces() : [];
   if (doAn && !targets.length) { showError("Select at least one workspace."); return; }
+  if (doBooks && !S.booksOrgId) { showError("Select a Books organization before scanning."); return; }
   S.scanning = true;
   $("btn-scan").disabled = true;
   $("scan-progress").classList.remove("done");
@@ -102,12 +322,18 @@ $("btn-scan").onclick = function () {
   (doAn ? scanAnalytics(targets) : Promise.resolve()).then(function () {
     return doFns ? scanFunctions() : null;
   }).then(function () {
+    return doBooks ? scanBooks() : null;
+  }).then(function () {
+    return doReports ? scanReports() : null;
+  }).then(function () {
     S.scannedAt = new Date().toLocaleString();
     try {
       localStorage.setItem(SCAN_KEY, JSON.stringify({
         at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
         tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
-        functions: S.functions, functionsScanned: S.functionsScanned
+        functions: S.functions, functionsScanned: S.functionsScanned,
+        booksFields: S.booksFields, booksScanned: S.booksScanned, booksOrgId: S.booksOrgId,
+        reports: S.reports, reportsScanned: S.reportsScanned, reportsSkippedStale: S.reportsSkippedStale
       }));
     } catch (e) { /* cache is best-effort */ }
     finishScan();
@@ -119,6 +345,131 @@ $("btn-scan").onclick = function () {
   });
 };
 
+// Books has no readable field-mapping API (see BOOKS_ENTITIES comment above),
+// so this lists custom fields per entity via the API, then adds the
+// hardcoded standard fields (STANDARD_BOOKS_FIELDS) for name-based matching.
+function scanBooks() {
+  S.booksFields = []; S.booksScanned = false;
+  $("scan-progress").innerHTML = "Reading Zoho Books custom fields&hellip;";
+  showLoader("Reading Zoho Books custom fields...");
+  var failures = 0;
+  return runQueue(BOOKS_ENTITIES, function (ent) {
+    return booksGet("/settings/fields?entity=" + ent.key).then(function (body) {
+      (body.fields || []).forEach(function (f) {
+        S.booksFields.push({
+          entity: ent.key, entityLabel: ent.label, fieldId: f.field_id,
+          label: f.label, apiName: f.api_name, standard: false
+        });
+      });
+    }).catch(function () { failures++; });
+  }, function (i, n, ent) {
+    $("scan-progress").innerHTML = "Reading Books fields <b>" + i + " / " + n + "</b> - " + esc(ent.label);
+    showLoader("Reading Books fields " + i + " / " + n, n ? i / n : null);
+  }).then(function () {
+    BOOKS_ENTITIES.forEach(function (ent) {
+      (STANDARD_BOOKS_FIELDS[ent.key] || []).forEach(function (f) {
+        S.booksFields.push({
+          entity: ent.key, entityLabel: ent.label, fieldId: null,
+          label: f.label, apiName: f.apiName, standard: true
+        });
+      });
+    });
+    S.booksScanned = true;
+    if (failures === BOOKS_ENTITIES.length) {
+      showError("Could not read any Zoho Books custom fields (standard-field matching still applies). Check the \"" +
+        $("conn-books").value + "\" connection, its ZohoBooks.settings.READ scope, and the selected organization.");
+    }
+  });
+}
+
+// A year's worth of unused reports can be hundreds of detail calls, so this
+// filters to recently-accessed ones before fetching detail at all, not after.
+// Confirmed against a real list response: every report carries last_run_date,
+// null when it's never been run. If it has been run, that's the real signal
+// (within the past year). If it's never been run, fall back to created_time:
+// a never-run report created over 6 months ago is treated as stale and
+// skipped, a newer never-run one still gets a look since it just hasn't had
+// time to be run yet. If neither date is usable at all, there's nothing to
+// judge recency by, so it's skipped too.
+var REPORT_RECENCY_DAYS = 365;
+var REPORT_NEW_GRACE_DAYS = 180;
+function withinDays(dateStr, days) {
+  if (!dateStr) return null;
+  var d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return (Date.now() - d.getTime()) <= days * 24 * 60 * 60 * 1000;
+}
+function wasRecentlyAccessed(r) {
+  var ranRecently = withinDays(r.last_run_date, REPORT_RECENCY_DAYS);
+  if (ranRecently !== null) return ranRecently;
+  var createdRecently = withinDays(r.created_time, REPORT_NEW_GRACE_DAYS);
+  if (createdRecently !== null) return createdRecently;
+  return false;
+}
+
+// The list endpoint below (/crm/v8/Reports) is a best-effort guess, only the
+// detail endpoint (/crm/v8/Reports/{id}) has been confirmed from a real
+// network capture. If this comes back empty on a real org, check the
+// network tab for the actual list call and fix the path here.
+function scanReports() {
+  S.reports = []; S.reportsScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM reports&hellip;";
+  showLoader("Listing CRM reports...");
+  var failures = 0;
+  return crmGet("/Reports").then(function (body) {
+    var all = (body && (body.reports || body.Reports)) || [];
+    var list = all.filter(wasRecentlyAccessed);
+    var listed = list.length;
+    S.reportsSkippedStale = all.length - list.length;
+    return runQueue(list, function (r) {
+      return crmGet("/Reports/" + r.id).then(function (detail) {
+        var full = (detail && detail.Reports && detail.Reports[0]) || detail;
+        if (!full) { failures++; return; }
+        S.reports.push({
+          id: full.id, name: full.name,
+          folderName: (full.folder && full.folder.name) || "",
+          moduleApiName: full.module && full.module.api_name,
+          joins: (full.joins || []).map(function (j) {
+            return { relation: j.relation, moduleApiName: j.module && j.module.api_name };
+          }),
+          refs: extractReportFieldRefs(full)
+        });
+      }).catch(function () { failures++; });
+    }, function (i, n, r) {
+      $("scan-progress").innerHTML = "Reading report <b>" + i + " / " + n + "</b> - " + esc(r.display_name || r.name || "");
+      showLoader("Reading report " + i + " / " + n, n ? i / n : null);
+    }).then(function () {
+      S.reportsScanned = true;
+      if (failures > 0) {
+        showError("Read " + S.reports.length + " of " + listed + " CRM reports." +
+          (S.reports.length === 0 ? " None were readable, so report matching is inactive." : ""));
+      }
+    });
+  }).catch(function (err) {
+    showError("Reports scan failed. Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.reports.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
+// Walks a report's columns and filters (recursively through nested filter
+// groups, plus the separate date_filter) collecting every field reference.
+// Scoped to columns + filters only, by design; group_by/sort_by/aggregate
+// functions/territory_filter aren't included.
+function extractReportFieldRefs(report) {
+  var refs = [];
+  (report.columns || []).forEach(function (c) {
+    if (c.field && c.field.api_name) refs.push({ apiName: c.field.api_name, kind: "column" });
+  });
+  function walkFilter(f, kind) {
+    if (!f) return;
+    if (f.group && f.group.length) { f.group.forEach(function (g) { walkFilter(g, kind); }); return; }
+    if (f.field && f.field.api_name) refs.push({ apiName: f.field.api_name, kind: kind });
+  }
+  walkFilter(report.filters, "filter");
+  walkFilter(report.date_filter, "date filter");
+  return refs;
+}
+
 function scanAnalytics(targets) {
   showLoader("Listing Analytics views…");
   var detailTargets = [];
@@ -128,8 +479,9 @@ function scanAnalytics(targets) {
     return analyticsGet("/workspaces/" + w.workspaceId + "/views", { noOfResult: 1000 })
       .then(function (body) {
         var views = (body.data && body.data.views) || [];
-        S.viewCount += views.length;
         views.forEach(function (v) {
+          if (!folderAllowed(w.workspaceId, v.folderId)) return;
+          S.viewCount++;
           if (v.viewType === "Table" || v.viewType === "QueryTable") {
             detailTargets.push({ ws: w, view: v });
           }
@@ -145,7 +497,11 @@ function scanAnalytics(targets) {
               wsId: t.ws.workspaceId, wsName: t.ws.workspaceName,
               viewId: t.view.viewId, viewName: t.view.viewName,
               columns: (d.columns || []).map(function (c) {
-                return { columnId: c.columnId, columnName: c.columnName };
+                return {
+                  columnId: c.columnId, columnName: c.columnName,
+                  dataType: c.dataTypeName || c.dataType || null,
+                  formula: c.formulaDisplayName || ""
+                };
               })
             });
           } else {
@@ -276,6 +632,9 @@ $("btn-cache").onclick = function () {
   var c = JSON.parse(localStorage.getItem(SCAN_KEY));
   S.tables = c.tables; S.queryTables = c.queryTables; S.viewCount = c.viewCount;
   S.functions = c.functions || []; S.functionsScanned = !!c.functionsScanned;
+  S.booksFields = c.booksFields || []; S.booksScanned = !!c.booksScanned; S.booksOrgId = c.booksOrgId || null;
+  S.reports = c.reports || []; S.reportsScanned = !!c.reportsScanned;
+  S.reportsSkippedStale = c.reportsSkippedStale || 0;
   S.orgId = c.orgId; S.scannedAt = c.at; $("dc").value = c.dc;
   finishScan();
 };
@@ -290,12 +649,18 @@ function finishScan() {
     "<b>" + S.queryTables.length + "</b> query " + (S.queryTables.length === 1 ? "table" : "tables")
   ];
   if (S.functionsScanned) stats.push("<b>" + S.functions.length + "</b> functions");
+  if (S.booksScanned) stats.push("<b>" + S.booksFields.length + "</b> Books fields");
+  if (S.reportsScanned) {
+    stats.push("<b>" + S.reports.length + "</b> reports" +
+      (S.reportsSkippedStale ? " (" + S.reportsSkippedStale + " skipped, not accessed in the past year)" : ""));
+  }
   var p = $("scan-progress");
   p.classList.add("done");
   p.innerHTML = "<b>Last scan · " + esc(S.scannedAt) + "</b>" +
     "<span class='scan-stats'>" + stats.join(" · ") + "</span>";
   updateScanButton();
   $("results").classList.remove("hidden");
+  $("reverse-audit-card").classList.add("hidden");
   $("setup-card").classList.add("collapsed");
   var t = $("btn-toggle-setup");
   t.classList.remove("hidden");

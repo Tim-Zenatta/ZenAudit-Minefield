@@ -5,10 +5,17 @@
 var S = {
   orgId: null,
   workspaces: [],     // {workspaceId, workspaceName, selected}
+  folders: [],        // {folderId, folderName, wsId, wsName, selected}
   tables: [],         // {wsId, wsName, viewId, viewName, columns:[{columnId, columnName}]}
   queryTables: [],    // {wsId, wsName, viewId, viewName, sql}
   functions: [],      // {id, name, code}
   functionsScanned: false,
+  booksOrgId: null,
+  booksFields: [],    // {entity, entityLabel, fieldId, label, apiName}
+  booksScanned: false,
+  reports: [],        // {id, name, folderName, moduleApiName, joins, refs:[{apiName, kind}]}
+  reportsScanned: false,
+  reportsSkippedStale: 0,
   viewCount: 0,
   modules: [],
   fields: [],
@@ -20,6 +27,8 @@ var S = {
   scanning: false,
   sdkReady: false,
   filter: "all",
-  crmZgid: null
+  crmZgid: null,
+  moduleFieldsCache: {},   // module api_name -> [{label, api_name}], for the reverse audit
+  reverseAuditResults: []  // [{table, module, unmatched}], see reverse-audit.js
 };
 var SCAN_KEY = "fieldcheck.scan.v3";
