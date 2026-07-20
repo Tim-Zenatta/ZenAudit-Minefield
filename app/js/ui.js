@@ -204,14 +204,15 @@ function renderDetail(f) {
       afCount += c.dep.aggregateFormulas.length;
     });
     var breakdown = [
-      { n: depViews, label: "Analytics views", icon: "chart" },
-      { n: cfCount, label: "formula columns", icon: "formula" },
-      { n: afCount, label: "aggregate formulas", icon: "aggregate" },
-      { n: r.sql.length, label: "query table SQL", icon: "query" },
-      { n: (r.functions || []).length, label: "CRM functions", icon: "function" },
-      { n: (r.reports || []).length, label: "CRM reports", icon: "report" }
+      { n: depViews, label: "Analytics views", icon: "chart", target: "section-analytics" },
+      { n: cfCount, label: "formula columns", icon: "formula", target: "section-analytics" },
+      { n: afCount, label: "aggregate formulas", icon: "aggregate", target: "section-analytics" },
+      { n: r.sql.length, label: "query table SQL", icon: "query", target: "section-sql" },
+      { n: (r.functions || []).length, label: "CRM functions", icon: "function", target: "section-functions" },
+      { n: (r.reports || []).length, label: "CRM reports", icon: "report", target: "section-reports" }
     ].filter(function (b) { return b.n > 0; }).map(function (b) {
-      return "<span class='vb'>" + iconFor(b.icon) + "<b>" + b.n + "</b>&nbsp;" + b.label + "</span>";
+      return "<span class='vb vb-link' onclick=\"__jumpTo('" + b.target + "')\">" +
+        iconFor(b.icon) + "<b>" + b.n + "</b>&nbsp;" + b.label + "</span>";
     }).join("");
     html += "<div class='verdict used'><div class='vnum'>" + n + "</div>" +
       "<div class='vmain'><b>place" + (n > 1 ? "s" : "") + " use this field</b>" +
@@ -234,6 +235,7 @@ function renderDetail(f) {
       (S.reportsScanned ? ", and no report references it" : "") +
       ". Scope: " + scope + ".</small></div>";
   }
+  html += "<div id='section-analytics'>";
   r.columns.forEach(function (c) {
     var where = c.tableName + (c.primary ? "" : " (different table, same column name)");
     if (c.error) {
@@ -265,14 +267,15 @@ function renderDetail(f) {
         c.wsName, af.parentViewId ? viewLink(c.wsId, af.parentViewId) : null, "");
     }).join("");
   });
+  html += "</div>";
   if (r.sql.length) {
-    html += "<h3 class='usage-group'>Query table SQL matches <span class='gcount'>" + r.sql.length + "</span></h3>";
+    html += "<h3 class='usage-group' id='section-sql'>Query table SQL matches <span class='gcount'>" + r.sql.length + "</span></h3>";
     html += r.sql.map(function (h) {
       return usageCard("QueryTable", h.viewName, h.wsName, viewLink(h.wsId, h.viewId), h.snippet);
     }).join("");
   }
   if ((r.functions || []).length) {
-    html += "<h3 class='usage-group'>CRM Deluge functions referencing " + esc(f.api_name) +
+    html += "<h3 class='usage-group' id='section-functions'>CRM Deluge functions referencing " + esc(f.api_name) +
       " <span class='gcount'>" + r.functions.length + (r.functions.length > 1 ? " functions" : " function") + "</span></h3>";
     html += r.functions.map(function (h) {
       return usageCard("function" + (h.count > 1 ? " (" + h.count + " references)" : ""),
@@ -280,7 +283,7 @@ function renderDetail(f) {
     }).join("");
   }
   if ((r.reports || []).length) {
-    html += "<h3 class='usage-group'>CRM reports referencing " + esc(f.api_name) +
+    html += "<h3 class='usage-group' id='section-reports'>CRM reports referencing " + esc(f.api_name) +
       " <span class='gcount'>" + r.reports.length + (r.reports.length > 1 ? " reports" : " report") + "</span></h3>";
     html += r.reports.map(function (h) {
       var vtype = "report " + h.kind + (h.confident ? "" : " - unverified match");
@@ -303,6 +306,10 @@ function renderDetail(f) {
 function detailFooter(f) {
   return "<p class='section-note'><button class='link' onclick='__recheck(\"" + f.api_name + "\")'>Recheck this field</button></p>";
 }
+window.__jumpTo = function (id) {
+  var el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+};
 window.__recheck = function (apiName) {
   var f = S.fields.filter(function (x) { return x.api_name === apiName; })[0];
   if (!f) return;
