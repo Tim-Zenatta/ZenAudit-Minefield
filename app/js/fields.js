@@ -108,12 +108,52 @@ function bookMatches(field) {
   });
 }
 
+// A report field reference is either bare ("Achievement", on the report's
+// own module), one hop through a join ("Forecast_Name.Group_Id", resolved
+// via that report's joins list), or a multi-hop lookup chain
+// ("Forecast_Name.Group_Id.Forecast_Group_Name") that can't be resolved to a
+// module without extra API calls per intermediate module. Bare and one-hop
+// references are verified against the currently checked field's module;
+// anything deeper is reported by name only, flagged unverified rather than
+// silently treated as equally certain.
+function resolveRefModule(report, parts) {
+  if (parts.length === 1) return { known: true, moduleApiName: report.moduleApiName };
+  if (parts.length === 2) {
+    var j = (report.joins || []).filter(function (x) { return x.relation === parts[0]; })[0];
+    return j ? { known: true, moduleApiName: j.moduleApiName } : { known: false, moduleApiName: null };
+  }
+  return { known: false, moduleApiName: null };
+}
+
+// Report references are by api_name only, same reasoning as functionHits.
+// Counts toward hitCount/categoryOf just like Analytics and function hits,
+// per your call that this should behave "just like functions."
+function reportHits(field) {
+  if (!S.reportsScanned || !field.api_name) return [];
+  var currentModule = $("module-pick").value;
+  var hits = [];
+  S.reports.forEach(function (r) {
+    r.refs.forEach(function (ref) {
+      var parts = ref.apiName.split(".");
+      var tail = parts[parts.length - 1];
+      if (norm(tail) !== norm(field.api_name)) return;
+      var resolved = resolveRefModule(r, parts);
+      if (resolved.known && resolved.moduleApiName !== currentModule) return;
+      hits.push({
+        reportId: r.id, reportName: r.name, folderName: r.folderName,
+        kind: ref.kind, confident: resolved.known
+      });
+    });
+  });
+  return hits;
+}
+
 function checkField(field) {
   if (S.results[field.api_name]) return Promise.resolve(S.results[field.api_name]);
   var matches = moduleTableFirst(field);
   var result = {
     columns: [], sql: sqlHits(field), functions: functionHits(field), books: bookMatches(field),
-    notSynced: matches.length === 0
+    reports: reportHits(field), notSynced: matches.length === 0
   };
   return runQueue(matches, function (m) {
     return getDependents(m).then(function (dep) {
@@ -135,26 +175,26 @@ function hitCount(result) {
   return result.columns.reduce(function (n, c) {
     if (!c.dep) return n;
     return n + c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
-  }, 0) + result.sql.length + (result.functions || []).length;
+  }, 0) + result.sql.length + (result.functions || []).length + (result.reports || []).length;
 }
 
 function categoryOf(f) {
   var r = S.results[f.api_name];
   if (!r) return "unchecked";
-  if (hitCount(r) > 0) return "used"; // function hits count even when not synced to Analytics
+  if (hitCount(r) > 0) return "used"; // function/report hits count even when not synced to Analytics
   return r.notSynced ? "na" : "clear";
 }
 
 // Two flavors of safe-to-delete: green "unused" = synced to Analytics but
 // nothing depends on it; gray "not synced" = absent from Analytics entirely.
-// Both imply no CRM function references (function hits force the used state).
-function naLabel() { return S.functionsScanned ? "not synced" : "not in Analytics"; }
+// Both imply no CRM function/report references (those force the used state).
+function naLabel() { return (S.functionsScanned || S.reportsScanned) ? "not synced" : "not in Analytics"; }
 
 function usageCounts(r) {
-  var an = r.sql.length, fn = (r.functions || []).length;
+  var an = r.sql.length, fn = (r.functions || []).length, rpt = (r.reports || []).length;
   r.columns.forEach(function (c) {
     if (!c.dep) return;
     an += c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
   });
-  return { analytics: an, functions: fn, books: (r.books || []).length };
+  return { analytics: an, functions: fn, reports: rpt, books: (r.books || []).length };
 }

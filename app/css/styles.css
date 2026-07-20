@@ -175,6 +175,7 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .chip.src-an { background: #E6F4EE; color: var(--zen-green-btn); }
 .chip.src-fn { background: #EEF2F1; color: var(--zen-green); }
 .chip.src-books { background: #EAF1FB; color: #2563eb; }
+.chip.src-rpt { background: #E0F7FA; color: #0891b2; }
 .chip.clear { background: #DFF7EC; color: #01784E; }
 .chip.used { background: #fbdcdc; color: #b3261e; }
 .chip.review { background: #fff3d6; color: #9a6b00; }
@@ -356,6 +357,7 @@ body.dark .chip.na, body.dark .chip.unchecked { background: rgba(255, 255, 255, 
 body.dark .chip.src-an { background: rgba(2, 213, 142, .14); color: #8df0c8; }
 body.dark .chip.src-fn { background: rgba(15, 134, 86, .22); color: #a9e6cd; }
 body.dark .chip.src-books { background: rgba(37, 99, 235, .18); color: #93c5fd; }
+body.dark .chip.src-rpt { background: rgba(8, 145, 178, .18); color: #67e8f9; }
 body.dark .verdict.used {
   background: linear-gradient(135deg, #044B30, #06301f);
   border: 1px solid rgba(2, 213, 142, .3); color: #fff;
