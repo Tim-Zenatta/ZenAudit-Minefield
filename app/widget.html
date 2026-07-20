@@ -125,9 +125,10 @@
           <label>Analytics connection link name</label>
           <input type="text" id="conn-analytics" value="analytics">
           <div class="scopes">scope: <code>ZohoAnalytics.metadata.read</code></div>
-          <label>CRM connection link name (functions)</label>
+          <label>CRM connection link name (functions, reports)</label>
           <input type="text" id="conn-crm" value="crm">
-          <div class="scopes">scope: <code>ZohoCRM.settings.functions.READ</code></div>
+          <div class="scopes">scopes: <code>ZohoCRM.settings.functions.READ</code>
+            <code>ZohoCRM.settings.reports.READ</code></div>
           <label>Books connection link name</label>
           <input type="text" id="conn-books" value="books">
           <div class="scopes">scope: <code>ZohoBooks.settings.READ</code></div>
@@ -187,14 +188,14 @@
               <span class="src-meta"><b>CRM Workflows</b><small>rules and conditions</small></span>
               <span class="soon-badge">Soon</span>
             </div>
-            <div class="src-tile soon">
+            <label class="src-tile">
               <span class="src-icon"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
                   <rect x="2.5" y="1.5" width="9" height="11" rx="1.5" />
                   <path d="M5 4.5h4M5 7h4M5 9.5h2.5" />
                 </svg></span>
-              <span class="src-meta"><b>CRM Reports</b><small>report columns and criteria</small></span>
-              <span class="soon-badge">Soon</span>
-            </div>
+              <span class="src-meta"><b>CRM Reports</b><small>report columns and filter criteria</small></span>
+              <input type="checkbox" id="include-reports"><span class="switch"></span>
+            </label>
             <label class="src-tile">
               <span class="src-icon"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
                   <path d="M2.5 2.7a1.5 1.5 0 0 1 1.5-1.5h7.5v10.3H4a1.5 1.5 0 0 0-1.5 1.5z" />
@@ -251,7 +252,8 @@
             then authorize it.
           </li>
           <li>Create a second connection with link name <code>crm</code> and scope <code>ZohoCRM.settings.ALL</code> (or
-            the minimal <code>ZohoCRM.settings.functions.READ</code> if your scope picker offers it), then authorize it.
+            the minimal <code>ZohoCRM.settings.functions.READ</code> plus <code>ZohoCRM.settings.reports.READ</code>
+            if your scope picker offers them separately), then authorize it.
           </li>
           <li>For the optional Zoho Books check, create a third connection with link name <code>books</code> and scope
             <code>ZohoBooks.settings.READ</code> (broader <code>ZohoBooks.fullaccess.all</code> also works), then

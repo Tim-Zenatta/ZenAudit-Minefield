@@ -27,6 +27,8 @@ function iconFor(vtype) {
     return svgIcon("<rect x='2' y='2' width='7' height='7' rx='1.5' fill='#e4576a'/><rect x='11' y='2' width='7' height='7' rx='1.5' fill='#f59e0b'/><rect x='2' y='11' width='7' height='7' rx='1.5' fill='#3b82f6'/><rect x='11' y='11' width='7' height='7' rx='1.5' fill='#22a565'/>");
   if (t.indexOf("books") >= 0)
     return svgIcon("<rect x='1' y='1' width='18' height='18' rx='4' fill='#16a34a'/><text x='10' y='14.5' font-size='11' font-weight='bold' font-family='Raleway,sans-serif' fill='#fff' text-anchor='middle'>B</text>");
+  if (t.indexOf("report") >= 0)
+    return svgIcon("<rect x='2' y='1' width='16' height='18' rx='2' fill='none' stroke='#0891b2' stroke-width='1.6'/><path d='M5 6h10M5 10h10M5 14h6' stroke='#0891b2' stroke-width='1.6' stroke-linecap='round'/>");
   if (t.indexOf("tabular") >= 0 || t.indexOf("table") >= 0)
     return svgIcon("<rect x='2' y='3' width='16' height='14' rx='1.5' fill='none' stroke='#64748b' stroke-width='1.6'/><rect x='2' y='3' width='16' height='4.5' fill='#64748b'/><path d='M2 12h16M8 7.5v9.5M13 7.5v9.5' stroke='#64748b' stroke-width='1.6'/>");
   return svgIcon("<rect x='4' y='2' width='12' height='16' rx='2' fill='none' stroke='#64748b' stroke-width='1.6'/><path d='M7 7h6M7 10.5h6M7 14h4' stroke='#64748b' stroke-width='1.6' stroke-linecap='round'/>");
@@ -39,10 +41,12 @@ function chipFor(f) {
     out = "<span class='chip unchecked'>&mdash;</span>";
   } else if (cat === "na") {
     out = "<span class='chip na' title='No matching column exists in the scanned Analytics workspaces" +
-      (S.functionsScanned ? ", and no CRM function references it" : "") + "'>" + naLabel() + "</span>";
+      (S.functionsScanned ? ", no CRM function references it" : "") +
+      (S.reportsScanned ? ", no CRM report references it" : "") + "'>" + naLabel() + "</span>";
   } else if (cat === "clear") {
     out = "<span class='chip clear' title='Synced to Analytics, but nothing depends on the column" +
-      (S.functionsScanned ? ", and no CRM function references it" : "") + "'>unused</span>";
+      (S.functionsScanned ? ", no CRM function references it" : "") +
+      (S.reportsScanned ? ", no CRM report references it" : "") + "'>unused</span>";
   } else {
     var u = usageCounts(S.results[f.api_name]);
     out = "";
@@ -53,6 +57,10 @@ function chipFor(f) {
     if (u.functions > 0) {
       out += "<span class='chip src-fn' title='" + u.functions + " CRM function reference" +
         (u.functions > 1 ? "s" : "") + "'>" + iconFor("function") + u.functions + "</span>";
+    }
+    if (u.reports > 0) {
+      out += "<span class='chip src-rpt' title='" + u.reports + " CRM report reference" +
+        (u.reports > 1 ? "s" : "") + "'>" + iconFor("report") + u.reports + "</span>";
     }
   }
   // Books is informational and matched by name only, so it's shown alongside
@@ -149,6 +157,9 @@ $("btn-export").onclick = function () {
     });
     r.sql.forEach(function (h) { uses.push("query table SQL: " + h.viewName); });
     (r.functions || []).forEach(function (h) { uses.push("function: " + h.name); });
+    (r.reports || []).forEach(function (h) {
+      uses.push("report " + h.kind + (h.confident ? "" : " (unverified)") + ": " + h.reportName);
+    });
     var verdict = cat === "used" ? "In use"
       : cat === "na" ? (S.functionsScanned ? "Not synced (absent from Analytics, no function references)" : "Not in Analytics")
       : "Unused (synced to Analytics, nothing depends on it)";
@@ -182,7 +193,8 @@ function renderDetail(f) {
   var n = hitCount(r);
   var scope = S.tables.length + " tables / " + S.queryTables.length + " query tables" +
     (S.functionsScanned ? " / " + S.functions.length + " functions" : "") +
-    (S.booksScanned ? " / " + S.booksFields.length + " Books fields" : "") + " scanned on " + S.scannedAt;
+    (S.booksScanned ? " / " + S.booksFields.length + " Books fields" : "") +
+    (S.reportsScanned ? " / " + S.reports.length + " reports" : "") + " scanned on " + S.scannedAt;
   if (n > 0) {
     var depViews = 0, cfCount = 0, afCount = 0;
     r.columns.forEach(function (c) {
@@ -196,7 +208,8 @@ function renderDetail(f) {
       { n: cfCount, label: "formula columns", icon: "formula" },
       { n: afCount, label: "aggregate formulas", icon: "aggregate" },
       { n: r.sql.length, label: "query table SQL", icon: "query" },
-      { n: (r.functions || []).length, label: "CRM functions", icon: "function" }
+      { n: (r.functions || []).length, label: "CRM functions", icon: "function" },
+      { n: (r.reports || []).length, label: "CRM reports", icon: "report" }
     ].filter(function (b) { return b.n > 0; }).map(function (b) {
       return "<span class='vb'>" + iconFor(b.icon) + "<b>" + b.n + "</b>&nbsp;" + b.label + "</span>";
     }).join("");
@@ -207,14 +220,18 @@ function renderDetail(f) {
       "<div class='verdict-breakdown'>" + breakdown + "</div></div>";
   } else if (r.notSynced) {
     html += "<div class='verdict na'><b>Not found in Analytics" +
-      (S.functionsScanned ? " or CRM Deluge functions" : "") + ".</b><small>No synced column named like &ldquo;" +
+      (S.functionsScanned ? " or CRM Deluge functions" : "") +
+      (S.reportsScanned ? " or CRM reports" : "") + ".</b><small>No synced column named like &ldquo;" +
       esc(f.label) + "&rdquo; / " + esc(f.api_name) + " exists in the scanned workspaces" +
-      (S.functionsScanned ? " and no function references it" : "") + ". Scope: " + scope + ".</small></div>";
+      (S.functionsScanned ? " and no function references it" : "") +
+      (S.reportsScanned ? " and no report references it" : "") + ". Scope: " + scope + ".</small></div>";
   } else {
     html += "<div class='verdict clear'><b>Safe to delete</b> as far as Analytics" +
-      (S.functionsScanned ? " and CRM Deluge functions" : "") + " are concerned." +
+      (S.functionsScanned ? " and CRM Deluge functions" : "") +
+      (S.reportsScanned ? " and CRM reports" : "") + " are concerned." +
       "<small>Zoho's dependency engine reports nothing depending on the matched column(s)" +
       (S.functionsScanned ? ", and no function code references the API name" : "") +
+      (S.reportsScanned ? ", and no report references it" : "") +
       ". Scope: " + scope + ".</small></div>";
   }
   r.columns.forEach(function (c) {
@@ -260,6 +277,14 @@ function renderDetail(f) {
     html += r.functions.map(function (h) {
       return usageCard("function" + (h.count > 1 ? " (" + h.count + " references)" : ""),
         h.name, null, functionsPageUrl(), h.snippet, "Open Functions page &rarr;");
+    }).join("");
+  }
+  if ((r.reports || []).length) {
+    html += "<h3 class='usage-group'>CRM reports referencing " + esc(f.api_name) +
+      " <span class='gcount'>" + r.reports.length + (r.reports.length > 1 ? " reports" : " report") + "</span></h3>";
+    html += r.reports.map(function (h) {
+      var vtype = "report " + h.kind + (h.confident ? "" : " - unverified match");
+      return usageCard(vtype, h.reportName, h.folderName, null, "");
     }).join("");
   }
   if ((r.books || []).length) {

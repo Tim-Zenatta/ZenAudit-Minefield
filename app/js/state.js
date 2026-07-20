@@ -13,6 +13,9 @@ var S = {
   booksOrgId: null,
   booksFields: [],    // {entity, entityLabel, fieldId, label, apiName}
   booksScanned: false,
+  reports: [],        // {id, name, folderName, moduleApiName, joins, refs:[{apiName, kind}]}
+  reportsScanned: false,
+  reportsSkippedStale: 0,
   viewCount: 0,
   modules: [],
   fields: [],
