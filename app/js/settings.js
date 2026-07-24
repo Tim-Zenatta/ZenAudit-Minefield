@@ -39,28 +39,70 @@ $("conn-books").onchange = function () {
 };
 $("dc").onchange = function () { saveSettings(); if (S.sdkReady) loadOrgs(); };
 
-// Three themes cycle dark -> light -> zen -> dark. The toggle button shows
-// the icon for whatever theme clicking it switches TO next, not the current
-// one (matching the original dark/light toggle's behavior).
+// Three themes (dark, light, zen) picked from a dropdown menu rather than
+// cycled through. applyTheme() just sets classes/icons for a given theme;
+// setTheme() is what the menu calls, and wraps that in a circular reveal
+// that grows from wherever the user clicked.
 var THEME = "dark";
-var THEME_NEXT = { dark: "light", light: "zen", zen: "dark" };
 var THEME_META = {
-  dark: { icon: "&#127769;", label: "dark" },        // moon
-  light: { icon: "&#9728;&#65039;", label: "light" }, // sun
-  zen: { icon: "&#127807;", label: "zen" }            // herb sprig
+  dark: { icon: "&#127769;", label: "Dark" },        // moon
+  light: { icon: "&#9728;&#65039;", label: "Light" }, // sun
+  zen: { icon: "&#127807;", label: "Zen" }            // herb sprig
 };
 function applyTheme(t) {
   THEME = t;
   document.body.classList.toggle("dark", t === "dark");
   document.body.classList.toggle("zen", t === "zen");
-  var next = THEME_NEXT[t];
-  $("theme-toggle").innerHTML = THEME_META[next].icon;
-  $("theme-toggle").title = "Switch to " + THEME_META[next].label + " mode";
+  $("theme-toggle-icon").innerHTML = THEME_META[t].icon;
+  $("theme-toggle").title = "Theme: " + THEME_META[t].label;
+  document.querySelectorAll(".theme-option").forEach(function (opt) {
+    opt.classList.toggle("active", opt.dataset.theme === t);
+  });
 }
-$("theme-toggle").onclick = function () {
-  applyTheme(THEME_NEXT[THEME]);
-  saveSettings();
+function prefersReducedMotion() {
+  return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+// Switching themes grows a circle from the clicked option (or the toggle
+// button itself, e.g. if picked via keyboard) out to cover the page. Falls
+// back to an instant switch on browsers without the View Transitions API,
+// or when the user has asked for reduced motion.
+function setTheme(t, originEl) {
+  var rect = (originEl || $("theme-toggle")).getBoundingClientRect();
+  closeThemeMenu();
+  if (t === THEME) return;
+  var apply = function () { applyTheme(t); saveSettings(); };
+  if (!document.startViewTransition || prefersReducedMotion()) { apply(); return; }
+  var x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+  var endRadius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  var transition = document.startViewTransition(apply);
+  transition.ready.then(function () {
+    document.documentElement.animate(
+      { clipPath: ["circle(0px at " + x + "px " + y + "px)", "circle(" + endRadius + "px at " + x + "px " + y + "px)"] },
+      { duration: 550, easing: "ease-in-out", pseudoElement: "::view-transition-new(root)" }
+    );
+  }).catch(function () { /* transition skipped/aborted; apply() already ran regardless */ });
+}
+function openThemeMenu() {
+  $("theme-menu").classList.remove("hidden");
+  $("theme-toggle").setAttribute("aria-expanded", "true");
+}
+function closeThemeMenu() {
+  $("theme-menu").classList.add("hidden");
+  $("theme-toggle").setAttribute("aria-expanded", "false");
+}
+$("theme-toggle").onclick = function (e) {
+  e.stopPropagation();
+  if ($("theme-menu").classList.contains("hidden")) openThemeMenu(); else closeThemeMenu();
 };
+document.querySelectorAll(".theme-option").forEach(function (opt) {
+  opt.onclick = function () { setTheme(opt.dataset.theme, opt); };
+});
+document.addEventListener("click", function (e) {
+  if (!$("theme-menu").classList.contains("hidden") && !e.target.closest(".theme-picker")) closeThemeMenu();
+});
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape") closeThemeMenu();
+});
 $("btn-toggle-setup").onclick = function () {
   var card = $("setup-card");
   card.classList.toggle("collapsed");
