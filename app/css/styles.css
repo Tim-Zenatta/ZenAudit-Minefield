@@ -30,11 +30,34 @@ header .tag { color: rgba(255, 255, 255, .78); font-size: 13px; }
   background: var(--grad-brand); color: #04140d !important; font-weight: 700;
   border-radius: 999px; padding: 4px 13px; font-size: 12.5px;
 }
+.theme-picker { position: relative; flex: none; }
 #theme-toggle {
+  display: inline-flex; align-items: center; gap: 7px;
   background: rgba(0, 0, 0, .25); border: 1px solid rgba(255, 255, 255, .3);
   font-size: 15px; padding: 5px 11px; line-height: 1; border-radius: 999px; color: #fff;
 }
 #theme-toggle:hover { background: rgba(0, 0, 0, .4); box-shadow: none; }
+#theme-toggle .chevron { opacity: .8; transition: transform .18s; }
+#theme-toggle[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+.theme-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 65;
+  background: #fff; border: 1px solid #DDE0E1; border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(4, 75, 48, .18);
+  padding: 6px; min-width: 150px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.theme-menu.hidden { display: none; }
+.theme-option {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: 0; border-radius: 8px; color: #222;
+  padding: 8px 10px; font-size: 13px; font-weight: 600; text-align: left;
+  cursor: pointer; box-shadow: none;
+}
+.theme-option:hover:not(:disabled) { background: #F6F8F7; box-shadow: none; }
+.theme-option .t-icon { flex: none; font-size: 15px; width: 18px; text-align: center; }
+.theme-option .t-label { flex: 1 1 auto; }
+.theme-option.active { background: #E6F4EE; color: var(--zen-green-btn); }
+.theme-option.active::after { content: "\2713"; font-weight: 700; }
 
 .wrap { padding: 20px 24px; }
 .card {
@@ -320,6 +343,10 @@ body.dark button.secondary {
 body.dark button.secondary:hover:not(:disabled) { background: var(--zen-mint); color: #04140d; }
 body.dark #theme-toggle { background: rgba(0, 0, 0, .25); color: #fff; }
 body.dark #theme-toggle:hover { background: rgba(0, 0, 0, .4); }
+body.dark .theme-menu { background: #0f1a15; border-color: #1d2b24; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+body.dark .theme-option { background: none; color: #e8efeb; }
+body.dark .theme-option:hover:not(:disabled) { background: #0b1310; }
+body.dark .theme-option.active { background: rgba(2, 213, 142, .12); color: var(--zen-mint); }
 body.dark .scopes { color: #9fb4a9; }
 body.dark .scopes code, body.dark .guide code { background: #0b1310; border-color: #24352c; color: #8df0c8; }
 body.dark .scopes code:hover, body.dark .guide code:hover { border-color: var(--zen-mint); }
@@ -459,6 +486,10 @@ body.zen .loader-shadow { background: radial-gradient(ellipse at center, rgba(19
 body.zen .loader-caption { color: #A24E2E; }
 body.zen #loader-fill, body.zen #mini-fill { background: linear-gradient(90deg, #C58C6D, #6B705C); }
 body.zen #mini-status { background: rgba(240, 221, 204, .92); color: #A24E2E; }
+body.zen .theme-menu { background: #FAF3EA; border-color: #DDBEA9; box-shadow: 0 10px 30px rgba(107, 112, 92, .25); }
+body.zen .theme-option { color: #3F4336; }
+body.zen .theme-option:hover:not(:disabled) { background: #F5EAD9; }
+body.zen .theme-option.active { background: #E6E6D9; color: #5C6150; }
 
 /* ============ loader overlay ============ */
 #loader {
@@ -544,4 +575,16 @@ body.dark #loader-status { color: #9fb4a9; }
 body.dark #mini-status { background: rgba(11, 19, 16, .88); color: var(--zen-mint); border: 1px solid rgba(2, 213, 142, .3); }
 @media (prefers-reduced-motion: reduce) {
   .otter-wrap svg, #loader .pill, .loader-shadow, #loader-fill.indet, #mini-otter svg { animation: none; }
+}
+
+/* ============ theme-switch circular reveal ============ */
+/* Picking a theme from the dropdown grows a circle from the clicked option
+   outward over the whole page. The browser's default cross-fade is turned
+   off on both snapshots so only the clip-path circle we animate from JS
+   (via the Web Animations API, targeting ::view-transition-new(root)) shows. */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-old(root) { z-index: 1; }
+::view-transition-new(root) { z-index: 2; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; }
 }

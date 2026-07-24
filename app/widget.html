@@ -21,7 +21,26 @@
     <span class="tag">Know what breaks before you delete a field</span>
     <span class="tag" id="build-tag">build 20</span>
     <span id="sdk-tag" class="tag" style="margin-left:auto">connecting&hellip;</span>
-    <button id="theme-toggle" title="Switch to light mode">&#9728;&#65039;</button>
+    <div class="theme-picker" id="theme-picker">
+      <button id="theme-toggle" type="button" aria-haspopup="true" aria-expanded="false" title="Change theme">
+        <span id="theme-toggle-icon">&#127769;</span>
+        <svg class="chevron" viewBox="0 0 10 6" width="9" height="6" aria-hidden="true">
+          <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"
+            stroke-linejoin="round" />
+        </svg>
+      </button>
+      <div class="theme-menu hidden" id="theme-menu" role="menu">
+        <button class="theme-option" type="button" data-theme="dark" role="menuitemradio">
+          <span class="t-icon">&#127769;</span><span class="t-label">Dark</span>
+        </button>
+        <button class="theme-option" type="button" data-theme="light" role="menuitemradio">
+          <span class="t-icon">&#9728;&#65039;</span><span class="t-label">Light</span>
+        </button>
+        <button class="theme-option" type="button" data-theme="zen" role="menuitemradio">
+          <span class="t-icon">&#127807;</span><span class="t-label">Zen</span>
+        </button>
+      </div>
+    </div>
   </header>
 
   <!-- ============ Loader overlay ============ -->
