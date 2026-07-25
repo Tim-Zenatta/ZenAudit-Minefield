@@ -63,7 +63,9 @@ function loadWorkspaces() {
 
 // The workspace/folder pickers only matter for the reverse audit (that's
 // where a mixed workspace's cross-app noise actually causes problems), so
-// they stay hidden otherwise to keep the normal scan card uncluttered.
+// they stay hidden otherwise to keep the normal scan card uncluttered. A
+// normal scan (CRM or Creator fields alike) just covers every folder, the
+// same as the CRM side always has — see scanAnalytics's filterByFolder.
 // Selection state itself isn't reset when hidden, it still governs
 // scanAnalytics() either way.
 function updateSelectorVisibility() {
@@ -73,12 +75,12 @@ function updateSelectorVisibility() {
 }
 
 // One workspace can mix tables from several apps (e.g. a consolidated "Zoho
-// One" workspace), which confuses both this and the reverse audit's name
-// matching. Folders are a natural scoping boundary for that, best-effort:
-// if a workspace's folders can't be read, scanning it stays unfiltered
-// rather than silently excluding everything. Default to only the CRM data
-// folder selected, since that's the one real signal to trust automatically;
-// everything else needs an explicit opt-in.
+// One" workspace), which confuses the reverse audit's name matching (that's
+// the only place folder selection is actually applied, see scanAnalytics).
+// Best-effort: if a workspace's folders can't be read, scanning it stays
+// unfiltered rather than silently excluding everything. Default to only the
+// CRM data folder selected, since that's the one real signal to trust
+// automatically; everything else needs an explicit opt-in.
 function loadFolders() {
   S.folders = [];
   return runQueue(S.workspaces, function (w) {
@@ -135,6 +137,10 @@ function selectedWorkspaces() {
   return S.workspaces.filter(function (w) { return w.selected; });
 }
 
+function selectedCreatorApps() {
+  return S.creatorApps.filter(function (a) { return a.selected; });
+}
+
 // Source toggle tiles: keep the tile styling in sync and refresh the button
 ["include-an", "include-fns", "include-reports"].forEach(function (id) {
   var cb = $(id);
@@ -149,6 +155,13 @@ $("include-books").onchange = function () {
   updateScanButton();
   if (cb.checked && S.sdkReady && !S.booksOrgId) loadBooksOrgs();
 };
+$("include-creator").onchange = function () {
+  var cb = $("include-creator");
+  cb.closest(".src-tile").classList.toggle("on", cb.checked);
+  updateScanButton();
+  if (cb.checked && S.sdkReady && !S.creatorApps.length) loadCreatorApps();
+  else renderCreatorAppList();
+};
 
 // The reverse audit is a different operation (Analytics -> CRM instead of
 // CRM -> Analytics) that runs standalone; selecting it locks out the normal
@@ -156,7 +169,7 @@ $("include-books").onchange = function () {
 $("include-reverse-audit").onchange = function () {
   var cb = $("include-reverse-audit");
   var exclusive = cb.checked;
-  ["include-an", "include-fns", "include-books", "include-reports"].forEach(function (id) {
+  ["include-an", "include-fns", "include-books", "include-reports", "include-creator"].forEach(function (id) {
     var other = $(id);
     other.disabled = exclusive;
     other.closest(".src-tile").classList.toggle("disabled-tile", exclusive);
@@ -182,12 +195,13 @@ function updateScanButton() {
     return;
   }
   var an = $("include-an").checked, fns = $("include-fns").checked, books = $("include-books").checked,
-    reports = $("include-reports").checked;
-  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (books ? 1 : 0) + (reports ? 1 : 0);
+    reports = $("include-reports").checked, creator = $("include-creator").checked;
+  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (books ? 1 : 0) + (reports ? 1 : 0) + (creator ? 1 : 0);
   var label = "Scan " + srcs + (srcs === 1 ? " source" : " sources");
   if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
   btn.textContent = srcs ? label : "Scan";
-  btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws) || (books && !S.booksOrgId));
+  btn.disabled = !!(S.scanning || !S.sdkReady || !srcs || (an && !ws) || (books && !S.booksOrgId) ||
+    (creator && !selectedCreatorApps().length));
 }
 
 // Zoho Books has no readable API for its native CRM sync field mapping, so
@@ -273,6 +287,49 @@ function loadBooksOrgs() {
     });
 }
 
+// Unlike Books' single organization, one Zoho Creator account can hold many
+// independent apps, so this is a multi-select pill list (like Analytics
+// workspaces) rather than a dropdown, defaulting to all selected.
+function loadCreatorApps() {
+  return creatorGet("/meta/applications").then(function (body) {
+    var apps = (body && body.applications) || [];
+    S.creatorApps = apps.map(function (a) {
+      return {
+        workspaceName: a.workspace_name, appName: a.application_name,
+        label: (a.workspace_name ? a.workspace_name + " / " : "") + a.application_name,
+        selected: true
+      };
+    });
+    renderCreatorAppList();
+    updateScanButton();
+  }).catch(function (err) {
+    showError("Could not reach Zoho Creator through connection \"" + $("conn-creator").value +
+      "\". Check the connection link name and that it is authorized.\n" + String(err && err.message || err));
+  });
+}
+
+function renderCreatorAppList() {
+  var section = $("creator-app-section");
+  if (!$("include-creator").checked || !S.creatorApps.length) { section.classList.add("hidden"); return; }
+  section.classList.remove("hidden");
+  var box = $("creator-app-list");
+  box.innerHTML = "";
+  S.creatorApps.forEach(function (a, i) {
+    var lab = document.createElement("label");
+    lab.className = "ws-pill" + (a.selected ? " on" : "");
+    var cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = a.selected;
+    cb.onchange = function () {
+      S.creatorApps[i].selected = cb.checked;
+      lab.classList.toggle("on", cb.checked);
+      updateScanButton();
+    };
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(a.label));
+    box.appendChild(lab);
+  });
+}
+
 // The scan only needs deep details for Tables (their columns carry the
 // columnIds used by the dependents API) and Query Tables (their SQL).
 // Everything else is reached through Zoho's own dependency engine.
@@ -286,7 +343,7 @@ $("btn-scan").onclick = function () {
     $("btn-scan").disabled = true;
     $("scan-progress").classList.remove("done");
     S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {};
-    scanAnalytics(wsTargets).then(function () {
+    scanAnalytics(wsTargets, true).then(function () {
       S.scannedAt = new Date().toLocaleString();
       return runReverseAudit();
     }).then(function () {
@@ -309,11 +366,12 @@ $("btn-scan").onclick = function () {
   }
 
   var doAn = $("include-an").checked, doFns = $("include-fns").checked, doBooks = $("include-books").checked,
-    doReports = $("include-reports").checked;
-  if (!doAn && !doFns && !doBooks && !doReports) { showError("Turn on at least one scan source."); return; }
+    doReports = $("include-reports").checked, doCreator = $("include-creator").checked;
+  if (!doAn && !doFns && !doBooks && !doReports && !doCreator) { showError("Turn on at least one scan source."); return; }
   var targets = doAn ? selectedWorkspaces() : [];
   if (doAn && !targets.length) { showError("Select at least one workspace."); return; }
   if (doBooks && !S.booksOrgId) { showError("Select a Books organization before scanning."); return; }
+  if (doCreator && !selectedCreatorApps().length) { showError("Select at least one Zoho Creator app before scanning."); return; }
   S.scanning = true;
   $("btn-scan").disabled = true;
   $("scan-progress").classList.remove("done");
@@ -326,6 +384,8 @@ $("btn-scan").onclick = function () {
   }).then(function () {
     return doReports ? scanReports() : null;
   }).then(function () {
+    return doCreator ? scanCreator() : null;
+  }).then(function () {
     S.scannedAt = new Date().toLocaleString();
     try {
       localStorage.setItem(SCAN_KEY, JSON.stringify({
@@ -333,7 +393,8 @@ $("btn-scan").onclick = function () {
         tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
         functions: S.functions, functionsScanned: S.functionsScanned,
         booksFields: S.booksFields, booksScanned: S.booksScanned, booksOrgId: S.booksOrgId,
-        reports: S.reports, reportsScanned: S.reportsScanned, reportsSkippedStale: S.reportsSkippedStale
+        reports: S.reports, reportsScanned: S.reportsScanned, reportsSkippedStale: S.reportsSkippedStale,
+        creatorFields: S.creatorFields, creatorScanned: S.creatorScanned
       }));
     } catch (e) { /* cache is best-effort */ }
     finishScan();
@@ -378,6 +439,55 @@ function scanBooks() {
     if (failures === BOOKS_ENTITIES.length) {
       showError("Could not read any Zoho Books custom fields (standard-field matching still applies). Check the \"" +
         $("conn-books").value + "\" connection, its ZohoBooks.settings.READ scope, and the selected organization.");
+    }
+  });
+}
+
+// Creator's form Deluge scripts aren't readable via this API, only field
+// metadata is, so like Books this is a name match, purely informational.
+// Walks each selected app's forms, then each form's fields. The field key
+// names below (display_name/link_name) mirror the same Meta API family's
+// applications/forms response shape; unconfirmed against a live org response
+// for the fields endpoint specifically, verify if this comes back empty.
+function scanCreator() {
+  S.creatorFields = []; S.creatorScanned = false;
+  var apps = selectedCreatorApps();
+  var appFailures = 0, formFailures = 0;
+  $("scan-progress").innerHTML = "Listing Zoho Creator forms&hellip;";
+  showLoader("Listing Zoho Creator forms...");
+  var formTargets = [];
+  return runQueue(apps, function (a) {
+    return creatorGet("/meta/" + a.workspaceName + "/" + a.appName + "/forms").then(function (body) {
+      (body.forms || []).forEach(function (f) {
+        formTargets.push({ app: a, linkName: f.link_name, label: f.display_name || f.link_name });
+      });
+    }).catch(function () { appFailures++; });
+  }, function (i, n, a) {
+    $("scan-progress").innerHTML = "Listing Creator forms <b>" + i + " / " + n + "</b> - " + esc(a.label);
+    showLoader("Listing Creator forms " + i + " / " + n, n ? i / n : null);
+  }).then(function () {
+    return runQueue(formTargets, function (t) {
+      return creatorGet("/meta/" + t.app.workspaceName + "/" + t.app.appName + "/form/" + t.linkName + "/fields")
+        .then(function (body) {
+          (body.fields || []).forEach(function (fl) {
+            S.creatorFields.push({
+              appLabel: t.app.label, formLabel: t.label,
+              label: fl.display_name || fl.link_name, apiName: fl.link_name
+            });
+          });
+        }).catch(function () { formFailures++; });
+    }, function (i, n, t) {
+      $("scan-progress").innerHTML = "Reading Creator fields <b>" + i + " / " + n + "</b> - " + esc(t.label);
+      showLoader("Reading Creator fields " + i + " / " + n, n ? i / n : null);
+    });
+  }).then(function () {
+    S.creatorScanned = true;
+    if (apps.length && appFailures === apps.length) {
+      showError("Could not list forms for any selected Zoho Creator app. Check the \"" + $("conn-creator").value +
+        "\" connection and that it is authorized.");
+    } else if (formFailures > 0 && S.creatorFields.length === 0) {
+      showError("Could not read fields for any Zoho Creator form (" + formFailures +
+        " unreadable). Field matching is inactive.");
     }
   });
 }
@@ -470,7 +580,13 @@ function extractReportFieldRefs(report) {
   return refs;
 }
 
-function scanAnalytics(targets) {
+// filterByFolder is only ever true for the reverse audit, which is the one
+// case that actually needs it (narrowing a mixed workspace so its Analytics
+// -> CRM name matching doesn't drown in unrelated apps' tables). A normal
+// scan, whether checking CRM or Creator fields, covers every folder, same
+// as it always has for CRM: field-name matching doesn't care what folder a
+// table lives in, only the reverse audit's blind "every column" sweep does.
+function scanAnalytics(targets, filterByFolder) {
   showLoader("Listing Analytics views…");
   var detailTargets = [];
   return runQueue(targets, function (w) {
@@ -480,7 +596,7 @@ function scanAnalytics(targets) {
       .then(function (body) {
         var views = (body.data && body.data.views) || [];
         views.forEach(function (v) {
-          if (!folderAllowed(w.workspaceId, v.folderId)) return;
+          if (filterByFolder && !folderAllowed(w.workspaceId, v.folderId)) return;
           S.viewCount++;
           if (v.viewType === "Table" || v.viewType === "QueryTable") {
             detailTargets.push({ ws: w, view: v });
@@ -635,6 +751,7 @@ $("btn-cache").onclick = function () {
   S.booksFields = c.booksFields || []; S.booksScanned = !!c.booksScanned; S.booksOrgId = c.booksOrgId || null;
   S.reports = c.reports || []; S.reportsScanned = !!c.reportsScanned;
   S.reportsSkippedStale = c.reportsSkippedStale || 0;
+  S.creatorFields = c.creatorFields || []; S.creatorScanned = !!c.creatorScanned;
   S.orgId = c.orgId; S.scannedAt = c.at; $("dc").value = c.dc;
   finishScan();
 };
@@ -650,6 +767,7 @@ function finishScan() {
   ];
   if (S.functionsScanned) stats.push("<b>" + S.functions.length + "</b> functions");
   if (S.booksScanned) stats.push("<b>" + S.booksFields.length + "</b> Books fields");
+  if (S.creatorScanned) stats.push("<b>" + S.creatorFields.length + "</b> Creator fields");
   if (S.reportsScanned) {
     stats.push("<b>" + S.reports.length + "</b> reports" +
       (S.reportsSkippedStale ? " (" + S.reportsSkippedStale + " skipped, not accessed in the past year)" : ""));
@@ -665,5 +783,7 @@ function finishScan() {
   var t = $("btn-toggle-setup");
   t.classList.remove("hidden");
   t.textContent = "Settings";
-  loadFields();
+  var haveCreatorFields = S.creatorScanned && S.creatorFields.length > 0;
+  $("field-mode-tabs").classList.toggle("hidden", !haveCreatorFields);
+  setFieldMode(haveCreatorFields && S.fieldMode === "creator" ? "creator" : "crm");
 }
