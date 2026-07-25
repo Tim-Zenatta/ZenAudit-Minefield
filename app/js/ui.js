@@ -27,6 +27,8 @@ function iconFor(vtype) {
     return svgIcon("<rect x='2' y='2' width='7' height='7' rx='1.5' fill='#e4576a'/><rect x='11' y='2' width='7' height='7' rx='1.5' fill='#f59e0b'/><rect x='2' y='11' width='7' height='7' rx='1.5' fill='#3b82f6'/><rect x='11' y='11' width='7' height='7' rx='1.5' fill='#22a565'/>");
   if (t.indexOf("books") >= 0)
     return svgIcon("<rect x='1' y='1' width='18' height='18' rx='4' fill='#16a34a'/><text x='10' y='14.5' font-size='11' font-weight='bold' font-family='Raleway,sans-serif' fill='#fff' text-anchor='middle'>B</text>");
+  if (t.indexOf("creator") >= 0)
+    return svgIcon("<rect x='1' y='1' width='18' height='18' rx='4' fill='#8b5cf6'/><text x='10' y='14.5' font-size='11' font-weight='bold' font-family='Raleway,sans-serif' fill='#fff' text-anchor='middle'>C</text>");
   if (t.indexOf("report") >= 0)
     return svgIcon("<rect x='2' y='1' width='16' height='18' rx='2' fill='none' stroke='#0891b2' stroke-width='1.6'/><path d='M5 6h10M5 10h10M5 14h6' stroke='#0891b2' stroke-width='1.6' stroke-linecap='round'/>");
   if (t.indexOf("tabular") >= 0 || t.indexOf("table") >= 0)
@@ -63,13 +65,20 @@ function chipFor(f) {
         (u.reports > 1 ? "s" : "") + "'>" + iconFor("report") + u.reports + "</span>";
     }
   }
-  // Books is informational and matched by name only, so it's shown alongside
-  // any verdict chip instead of factoring into categoryOf.
+  // Books and Creator are both informational, matched by name only, so
+  // they're shown alongside any verdict chip instead of factoring into categoryOf.
   if (cat !== "unchecked" && S.booksScanned) {
     var bn = (S.results[f.api_name].books || []).length;
     if (bn > 0) {
       out += "<span class='chip src-books' title='" + bn + " matching Zoho Books field" + (bn > 1 ? "s" : "") +
         " by name (informational, does not affect this verdict)'>" + iconFor("books") + bn + "</span>";
+    }
+  }
+  if (cat !== "unchecked" && S.creatorScanned) {
+    var crn = (S.results[f.api_name].creator || []).length;
+    if (crn > 0) {
+      out += "<span class='chip src-creator' title='" + crn + " matching Zoho Creator field" + (crn > 1 ? "s" : "") +
+        " by name (informational, does not affect this verdict)'>" + iconFor("creator") + crn + "</span>";
     }
   }
   return "<span class='chips'>" + out + "</span>";
@@ -143,7 +152,8 @@ $("btn-check-all").onclick = function () {
 
 $("btn-export").onclick = function () {
   var mod = $("module-pick").selectedOptions[0].textContent;
-  var rows = [["Module", "Field", "API Name", "Type", "Custom", "Verdict", "Hits", "Used In", "Books Matches (informational)"]];
+  var rows = [["Module", "Field", "API Name", "Type", "Custom", "Verdict", "Hits", "Used In",
+    "Books Matches (informational)", "Creator Matches (informational)"]];
   S.fields.forEach(function (f) {
     var cat = categoryOf(f);
     if (cat === "unchecked") return;
@@ -164,8 +174,9 @@ $("btn-export").onclick = function () {
       : cat === "na" ? (S.functionsScanned ? "Not synced (absent from Analytics, no function references)" : "Not in Analytics")
       : "Unused (synced to Analytics, nothing depends on it)";
     var booksMatches = (r.books || []).map(function (b) { return b.entityLabel + ": " + b.label; }).join("; ");
+    var creatorMatchesStr = (r.creator || []).map(function (c) { return c.appLabel + " / " + c.formLabel + ": " + c.label; }).join("; ");
     rows.push([mod, f.label, f.api_name, f.type, f.custom ? "yes" : "no",
-      verdict, String(cat === "used" ? hitCount(r) : 0), uses.join("; "), booksMatches]);
+      verdict, String(cat === "used" ? hitCount(r) : 0), uses.join("; "), booksMatches, creatorMatchesStr]);
   });
   if (rows.length === 1) { $("check-progress").textContent = "Nothing to export yet: check some fields first."; return; }
   var csv = rows.map(function (r) {
@@ -194,6 +205,7 @@ function renderDetail(f) {
   var scope = S.tables.length + " tables / " + S.queryTables.length + " query tables" +
     (S.functionsScanned ? " / " + S.functions.length + " functions" : "") +
     (S.booksScanned ? " / " + S.booksFields.length + " Books fields" : "") +
+    (S.creatorScanned ? " / " + S.creatorFields.length + " Creator fields" : "") +
     (S.reportsScanned ? " / " + S.reports.length + " reports" : "") + " scanned on " + S.scannedAt;
   if (n > 0) {
     var depViews = 0, cfCount = 0, afCount = 0;
@@ -300,6 +312,15 @@ function renderDetail(f) {
         b.standard ? "standard field" : "custom field", null, "");
     }).join("");
   }
+  if ((r.creator || []).length) {
+    html += "<h3 class='usage-group'>Zoho Creator fields matching by name <span class='gcount'>" +
+      r.creator.length + "</span></h3>" +
+      "<p class='section-note'>Informational only. Creator's Deluge form scripts aren't readable via API, " +
+      "so these are name matches against Creator form fields and do not affect the verdict above.</p>";
+    html += r.creator.map(function (c) {
+      return usageCard("Creator " + c.appLabel, c.label + " (" + c.apiName + ")", c.formLabel, null, "");
+    }).join("");
+  }
   $("detail-body").innerHTML = html + detailFooter(f);
 }
 
@@ -315,7 +336,7 @@ window.__recheck = function (apiName) {
   if (!f) return;
   delete S.results[apiName];
   // Invalidate dependents cache for this field's columns so the recheck is real
-  moduleTableFirst(f).forEach(function (m) { delete S.depCache[m.col.columnId]; });
+  fieldTableMatches(f).forEach(function (m) { delete S.depCache[m.col.columnId]; });
   S.activeField = apiName;
   renderFieldList();
   $("detail-body").innerHTML = "<p class='section-note'>Rechecking&hellip;</p>";
