@@ -142,7 +142,7 @@ function selectedCreatorApps() {
 }
 
 // Source toggle tiles: keep the tile styling in sync and refresh the button
-["include-an", "include-fns", "include-reports"].forEach(function (id) {
+["include-an", "include-fns", "include-reports", "include-workflows"].forEach(function (id) {
   var cb = $(id);
   cb.onchange = function () {
     cb.closest(".src-tile").classList.toggle("on", cb.checked);
@@ -169,7 +169,7 @@ $("include-creator").onchange = function () {
 $("include-reverse-audit").onchange = function () {
   var cb = $("include-reverse-audit");
   var exclusive = cb.checked;
-  ["include-an", "include-fns", "include-books", "include-reports", "include-creator"].forEach(function (id) {
+  ["include-an", "include-fns", "include-books", "include-reports", "include-creator", "include-workflows"].forEach(function (id) {
     var other = $(id);
     other.disabled = exclusive;
     other.closest(".src-tile").classList.toggle("disabled-tile", exclusive);
@@ -195,8 +195,9 @@ function updateScanButton() {
     return;
   }
   var an = $("include-an").checked, fns = $("include-fns").checked, books = $("include-books").checked,
-    reports = $("include-reports").checked, creator = $("include-creator").checked;
-  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (books ? 1 : 0) + (reports ? 1 : 0) + (creator ? 1 : 0);
+    reports = $("include-reports").checked, creator = $("include-creator").checked,
+    workflows = $("include-workflows").checked;
+  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (books ? 1 : 0) + (reports ? 1 : 0) + (creator ? 1 : 0) + (workflows ? 1 : 0);
   var label = "Scan " + srcs + (srcs === 1 ? " source" : " sources");
   if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
   btn.textContent = srcs ? label : "Scan";
@@ -366,8 +367,9 @@ $("btn-scan").onclick = function () {
   }
 
   var doAn = $("include-an").checked, doFns = $("include-fns").checked, doBooks = $("include-books").checked,
-    doReports = $("include-reports").checked, doCreator = $("include-creator").checked;
-  if (!doAn && !doFns && !doBooks && !doReports && !doCreator) { showError("Turn on at least one scan source."); return; }
+    doReports = $("include-reports").checked, doCreator = $("include-creator").checked,
+    doWorkflows = $("include-workflows").checked;
+  if (!doAn && !doFns && !doBooks && !doReports && !doCreator && !doWorkflows) { showError("Turn on at least one scan source."); return; }
   var targets = doAn ? selectedWorkspaces() : [];
   if (doAn && !targets.length) { showError("Select at least one workspace."); return; }
   if (doBooks && !S.booksOrgId) { showError("Select a Books organization before scanning."); return; }
@@ -387,6 +389,10 @@ $("btn-scan").onclick = function () {
   }).then(function () {
     return doCreator ? scanCreator() : null;
   }).then(function () {
+    return doWorkflows ? scanWorkflowFieldUpdates() : null;
+  }).then(function () {
+    return doWorkflows ? scanWorkflowRules() : null;
+  }).then(function () {
     S.scannedAt = new Date().toLocaleString();
     try {
       localStorage.setItem(SCAN_KEY, JSON.stringify({
@@ -395,7 +401,9 @@ $("btn-scan").onclick = function () {
         functions: S.functions, functionsScanned: S.functionsScanned,
         booksFields: S.booksFields, booksScanned: S.booksScanned, booksOrgId: S.booksOrgId,
         reports: S.reports, reportsScanned: S.reportsScanned, reportsSkippedStale: S.reportsSkippedStale,
-        creatorFields: S.creatorFields, creatorScanned: S.creatorScanned
+        creatorFields: S.creatorFields, creatorScanned: S.creatorScanned,
+        workflowFieldUpdates: S.workflowFieldUpdates, workflowFieldUpdatesScanned: S.workflowFieldUpdatesScanned,
+        workflowRules: S.workflowRules, workflowRulesScanned: S.workflowRulesScanned
       }));
     } catch (e) { /* cache is best-effort */ }
     finishScan();
@@ -581,6 +589,80 @@ function extractReportFieldRefs(report) {
   return refs;
 }
 
+// Zoho's criteria tree (used for both a rule's trigger criteria and its
+// firing conditions, see config-workflow.html) nests as {group_operator,
+// group: [...]}, bottoming out at {field: {api_name}, comparator, value}.
+// The Edit trigger's "specific fields" checkbox list (vs. a real value
+// comparison) reuses this exact same tree, just with comparator/value set to
+// the sentinel "${ANYVALUE}" - confirmed against a live rule, not guessed -
+// so no separate handling is needed for it. relational_criteria (comparing
+// against another module's field rather than a literal value) isn't walked,
+// same deliberate scoping choice as extractReportFieldRefs skipping
+// group_by/aggregate.
+function walkCriteriaGroup(node, refs) {
+  if (!node) return;
+  if (node.group && node.group.length) { node.group.forEach(function (g) { walkCriteriaGroup(g, refs); }); return; }
+  if (node.field && node.field.api_name) refs.push(node.field.api_name);
+}
+
+// A rule's own criteria for firing (execute_when.details.criteria) is
+// distinct from the module-wide "when to fire" condition list (conditions[]
+// .criteria_details.criteria) - kept as two separate reference lists so a
+// field can be flagged as "used as a trigger" separately from "used in
+// firing criteria," per your call.
+function extractTriggerFieldRefs(rule) {
+  var refs = [];
+  walkCriteriaGroup(rule.execute_when && rule.execute_when.details && rule.execute_when.details.criteria, refs);
+  return refs;
+}
+function extractConditionFieldRefs(rule) {
+  var refs = [];
+  (rule.conditions || []).forEach(function (c) {
+    walkCriteriaGroup(c.criteria_details && c.criteria_details.criteria, refs);
+  });
+  return refs;
+}
+
+function scanWorkflowRules() {
+  S.workflowRules = []; S.workflowRulesScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM workflow rules&hellip;";
+  showLoader("Listing CRM workflow rules...");
+  var failures = 0;
+  function listPage(page, all) {
+    return crmGet("/settings/automation/workflow_rules?page=" + page + "&per_page=200").then(function (body) {
+      all = all.concat((body && body.workflow_rules) || []);
+      var info = body && body.info;
+      return (info && info.more_records) ? listPage(page + 1, all) : all;
+    });
+  }
+  return listPage(1, []).then(function (list) {
+    var listed = list.length;
+    return runQueue(list, function (rule) {
+      return crmGet("/settings/automation/workflow_rules/" + rule.id).then(function (detail) {
+        var full = (detail && detail.workflow_rules && detail.workflow_rules[0]) || detail;
+        if (!full || !full.module) { failures++; return; }
+        S.workflowRules.push({
+          id: full.id, name: full.name, moduleApiName: full.module.api_name,
+          triggerFields: extractTriggerFieldRefs(full),
+          criteriaFields: extractConditionFieldRefs(full)
+        });
+      }).catch(function () { failures++; });
+    }, function (i, n, rule) {
+      $("scan-progress").innerHTML = "Reading workflow rule <b>" + i + " / " + n + "</b> - " + esc(rule.name || "");
+      showLoader("Reading workflow rule " + i + " / " + n, n ? i / n : null);
+    }).then(function () {
+      S.workflowRulesScanned = true;
+      if (failures > 0) {
+        showError("Read " + S.workflowRules.length + " of " + listed + " workflow rules." +
+          (S.workflowRules.length === 0 ? " None were readable, so workflow trigger/criteria matching is inactive." : ""));
+      }
+    });
+  }).catch(function (err) {
+    showError("Workflow rules scan failed (field update matching is unaffected). Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.workflow_rules.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
 // filterByFolder is only ever true for the reverse audit, which is the one
 // case that actually needs it (narrowing a mixed workspace so its Analytics
 // -> CRM name matching doesn't drown in unrelated apps' tables). A normal
@@ -745,6 +827,38 @@ function scanFunctions() {
   });
 }
 
+// Field Update actions name their target module + field by api_name directly
+// (see get-field-update.html), so unlike functionHits/reportHits this needs
+// no text search, and matching by module.api_name rules out cross-module
+// false positives entirely. Paginated since an org can have 200+ of these.
+function scanWorkflowFieldUpdates() {
+  S.workflowFieldUpdates = []; S.workflowFieldUpdatesScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM workflow field updates&hellip;";
+  showLoader("Listing CRM workflow field updates...");
+  function fetchPage(page) {
+    $("scan-progress").innerHTML = "Listing CRM workflow field updates &mdash; page <b>" + page + "</b>&hellip;";
+    showLoader("Listing CRM workflow field updates — page " + page + "...");
+    return crmGet("/settings/automation/field_updates?page=" + page + "&per_page=200").then(function (body) {
+      ((body && body.field_updates) || []).forEach(function (fu) {
+        if (!fu.module || !fu.field) return;
+        S.workflowFieldUpdates.push({
+          id: fu.id, name: fu.name,
+          moduleApiName: fu.module.api_name, fieldApiName: fu.field.api_name,
+          value: fu.value, valueType: fu.type, featureType: fu.feature_type
+        });
+      });
+      var info = body && body.info;
+      if (info && info.more_records) return fetchPage(page + 1);
+    });
+  }
+  return fetchPage(1).then(function () {
+    S.workflowFieldUpdatesScanned = true;
+  }).catch(function (err) {
+    showError("Workflow field updates scan failed. Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.automation_actions.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
 $("btn-cache").onclick = function () {
   var c = JSON.parse(localStorage.getItem(SCAN_KEY));
   S.tables = c.tables; S.queryTables = c.queryTables; S.viewCount = c.viewCount;
@@ -754,6 +868,8 @@ $("btn-cache").onclick = function () {
   S.reports = c.reports || []; S.reportsScanned = !!c.reportsScanned;
   S.reportsSkippedStale = c.reportsSkippedStale || 0;
   S.creatorFields = c.creatorFields || []; S.creatorScanned = !!c.creatorScanned;
+  S.workflowFieldUpdates = c.workflowFieldUpdates || []; S.workflowFieldUpdatesScanned = !!c.workflowFieldUpdatesScanned;
+  S.workflowRules = c.workflowRules || []; S.workflowRulesScanned = !!c.workflowRulesScanned;
   S.orgId = c.orgId; S.scannedAt = c.at; $("dc").value = c.dc;
   finishScan();
 };
@@ -774,6 +890,8 @@ function finishScan() {
     stats.push("<b>" + S.reports.length + "</b> reports" +
       (S.reportsSkippedStale ? " (" + S.reportsSkippedStale + " skipped, not accessed in the past year)" : ""));
   }
+  if (S.workflowFieldUpdatesScanned) stats.push("<b>" + S.workflowFieldUpdates.length + "</b> workflow field updates");
+  if (S.workflowRulesScanned) stats.push("<b>" + S.workflowRules.length + "</b> workflow rules");
   var p = $("scan-progress");
   p.classList.add("done");
   p.innerHTML = "<b>Last scan · " + esc(S.scannedAt) + "</b>" +

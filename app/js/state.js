@@ -20,6 +20,10 @@ var S = {
   reports: [],        // {id, name, folderName, moduleApiName, joins, refs:[{apiName, kind}]}
   reportsScanned: false,
   reportsSkippedStale: 0,
+  workflowFieldUpdates: [], // {id, name, moduleApiName, fieldApiName, value, valueType, featureType}
+  workflowFieldUpdatesScanned: false,
+  workflowRules: [], // {id, name, moduleApiName, triggerFields:[apiName], criteriaFields:[apiName]}
+  workflowRulesScanned: false,
   viewCount: 0,
   modules: [],
   fieldMode: "crm",   // "crm" | "creator" — which source Step 2/3 are browsing

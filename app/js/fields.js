@@ -269,6 +269,42 @@ function reportHits(field) {
   return hits;
 }
 
+// Field Update actions name their target module + field by api_name directly
+// (Zoho's Field Update Actions API), so this is an exact match, not a
+// name/regex heuristic like functionHits/reportHits: the module is always
+// present on the record, so there's no cross-module ambiguity to guard
+// against. Counts toward hitCount/categoryOf just like functions and
+// reports, since an exact match is at least as trustworthy as those.
+function workflowFieldUpdateHits(field) {
+  if (!S.workflowFieldUpdatesScanned || !field.api_name) return [];
+  var currentModule = $("module-pick").value;
+  return S.workflowFieldUpdates.filter(function (fu) {
+    return fu.moduleApiName === currentModule && fu.fieldApiName === field.api_name;
+  }).map(function (fu) {
+    return { id: fu.id, name: fu.name, value: fu.value, valueType: fu.valueType, featureType: fu.featureType };
+  });
+}
+
+// Workflow rule triggers and firing conditions are also exact api_name +
+// module matches (see scanWorkflowRules/walkCriteriaGroup), so they count
+// toward the verdict just like workflow field updates. Kept as two separate
+// hit lists rather than merged, since "used as a trigger" and "used in
+// firing criteria" are different things to know about a field.
+function workflowTriggerHits(field) {
+  if (!S.workflowRulesScanned || !field.api_name) return [];
+  var currentModule = $("module-pick").value;
+  return S.workflowRules.filter(function (r) {
+    return r.moduleApiName === currentModule && r.triggerFields.indexOf(field.api_name) >= 0;
+  }).map(function (r) { return { id: r.id, name: r.name }; });
+}
+function workflowCriteriaHits(field) {
+  if (!S.workflowRulesScanned || !field.api_name) return [];
+  var currentModule = $("module-pick").value;
+  return S.workflowRules.filter(function (r) {
+    return r.moduleApiName === currentModule && r.criteriaFields.indexOf(field.api_name) >= 0;
+  }).map(function (r) { return { id: r.id, name: r.name }; });
+}
+
 // Creator fields get the same Analytics-dependents + Deluge-function checks
 // as CRM fields (that's the actual point: knowing what breaks downstream),
 // just without the CRM-specific Books/Creator-name-match/Reports extras,
@@ -280,7 +316,9 @@ function checkField(field) {
     ? { columns: [], sql: sqlHits(field), functions: creatorFunctionHits(field), notSynced: matches.length === 0 }
     : {
         columns: [], sql: sqlHits(field), functions: functionHits(field), books: bookMatches(field),
-        creator: creatorMatches(field), reports: reportHits(field), notSynced: matches.length === 0
+        creator: creatorMatches(field), reports: reportHits(field), workflows: workflowFieldUpdateHits(field),
+        triggers: workflowTriggerHits(field), criteria: workflowCriteriaHits(field),
+        notSynced: matches.length === 0
       };
   return runQueue(matches, function (m) {
     return getDependents(m).then(function (dep) {
@@ -302,13 +340,18 @@ function hitCount(result) {
   return result.columns.reduce(function (n, c) {
     if (!c.dep) return n;
     return n + c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
-  }, 0) + result.sql.length + (result.functions || []).length + (result.reports || []).length;
+  }, 0) + result.sql.length + (result.functions || []).length + (result.reports || []).length +
+    (result.workflows || []).length + (result.triggers || []).length + (result.criteria || []).length;
 }
 
 // Whether this scan actually checked CRM field usage (Analytics sync, CRM
-// functions, or reports) rather than just the informational Books/Creator
-// name-match sources. notSynced/hitCount only mean something against these.
-function usageScanned() { return S.analyticsScanned || S.functionsScanned || S.reportsScanned; }
+// functions, reports, or workflow field updates/triggers/criteria) rather
+// than just the informational Books/Creator name-match sources.
+// notSynced/hitCount only mean something against these.
+function usageScanned() {
+  return S.analyticsScanned || S.functionsScanned || S.reportsScanned ||
+    S.workflowFieldUpdatesScanned || S.workflowRulesScanned;
+}
 
 function categoryOf(f) {
   var r = S.results[f.api_name];
@@ -329,8 +372,11 @@ function categoryOf(f) {
 
 // Two flavors of safe-to-delete: green "unused" = synced to Analytics but
 // nothing depends on it; gray "not synced" = absent from Analytics entirely.
-// Both imply no CRM function/report references (those force the used state).
-function naLabel() { return (S.functionsScanned || S.reportsScanned) ? "not synced" : "not in Analytics"; }
+// Both imply no CRM function/report/workflow references (those force used).
+function naLabel() {
+  return (S.functionsScanned || S.reportsScanned || S.workflowFieldUpdatesScanned || S.workflowRulesScanned)
+    ? "not synced" : "not in Analytics";
+}
 
 // Mirrors naLabel for the Books/Creator-only scan case (see categoryOf).
 function unmatchedLabel() {
@@ -341,10 +387,12 @@ function unmatchedLabel() {
 }
 
 function usageCounts(r) {
-  var an = r.sql.length, fn = (r.functions || []).length, rpt = (r.reports || []).length;
+  var an = r.sql.length, fn = (r.functions || []).length, rpt = (r.reports || []).length,
+    wf = (r.workflows || []).length, trig = (r.triggers || []).length, crit = (r.criteria || []).length;
   r.columns.forEach(function (c) {
     if (!c.dep) return;
     an += c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
   });
-  return { analytics: an, functions: fn, reports: rpt, books: (r.books || []).length, creator: (r.creator || []).length };
+  return { analytics: an, functions: fn, reports: rpt, workflows: wf, triggers: trig, criteria: crit,
+    books: (r.books || []).length, creator: (r.creator || []).length };
 }
