@@ -204,6 +204,8 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .chip.src-wf { background: #FFEDD5; color: #c2410c; }
 .chip.src-trig { background: #FEF9C3; color: #a16207; }
 .chip.src-crit { background: #E0E7FF; color: #4338ca; }
+.chip.src-score { background: #FFE4E6; color: #be123c; }
+.chip.src-blueprint { background: #E0F2FE; color: #0369a1; }
 .chip.clear { background: #DFF7EC; color: #01784E; }
 .chip.used { background: #fbdcdc; color: #b3261e; }
 .chip.review { background: #fff3d6; color: #9a6b00; }
@@ -409,6 +411,8 @@ body.dark .chip.src-creator { background: rgba(139, 92, 246, .18); color: #c4b5f
 body.dark .chip.src-wf { background: rgba(249, 115, 22, .18); color: #fdba74; }
 body.dark .chip.src-trig { background: rgba(234, 179, 8, .18); color: #fde047; }
 body.dark .chip.src-crit { background: rgba(99, 102, 241, .2); color: #a5b4fc; }
+body.dark .chip.src-score { background: rgba(225, 29, 72, .18); color: #fda4af; }
+body.dark .chip.src-blueprint { background: rgba(2, 132, 199, .2); color: #7dd3fc; }
 body.dark .verdict.used {
   background: linear-gradient(135deg, #044B30, #06301f);
   border: 1px solid rgba(2, 213, 142, .3); color: #fff;

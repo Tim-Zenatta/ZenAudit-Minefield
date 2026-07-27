@@ -20,10 +20,17 @@ var S = {
   reports: [],        // {id, name, folderName, moduleApiName, joins, refs:[{apiName, kind}]}
   reportsScanned: false,
   reportsSkippedStale: 0,
-  workflowFieldUpdates: [], // {id, name, moduleApiName, fieldApiName, value, valueType, featureType}
+  // moduleId is what field-matching actually keys off; moduleApiName is kept
+  // alongside for display/debugging (see fields.js currentModuleId comment
+  // for why api_name alone isn't reliable across automation endpoints).
+  workflowFieldUpdates: [], // {id, name, moduleApiName, moduleId, fieldApiName, value, valueType, featureType}
   workflowFieldUpdatesScanned: false,
-  workflowRules: [], // {id, name, moduleApiName, triggerFields:[apiName], criteriaFields:[apiName]}
+  workflowRules: [], // {id, name, moduleApiName, moduleId, triggerFields:[apiName], criteriaFields:[apiName]}
   workflowRulesScanned: false,
+  scoringRules: [], // {id, name, moduleApiName, moduleId, criteriaFields:[apiName]}
+  scoringRulesScanned: false,
+  blueprintFields: [], // {id, name, moduleApiName, moduleId, fieldApiName, pipelineName}
+  blueprintFieldsScanned: false,
   viewCount: 0,
   modules: [],
   fieldMode: "crm",   // "crm" | "creator" — which source Step 2/3 are browsing

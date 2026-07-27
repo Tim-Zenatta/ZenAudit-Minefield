@@ -393,6 +393,10 @@ $("btn-scan").onclick = function () {
   }).then(function () {
     return doWorkflows ? scanWorkflowRules() : null;
   }).then(function () {
+    return doWorkflows ? scanScoringRules() : null;
+  }).then(function () {
+    return doWorkflows ? scanBlueprints() : null;
+  }).then(function () {
     S.scannedAt = new Date().toLocaleString();
     try {
       localStorage.setItem(SCAN_KEY, JSON.stringify({
@@ -403,7 +407,9 @@ $("btn-scan").onclick = function () {
         reports: S.reports, reportsScanned: S.reportsScanned, reportsSkippedStale: S.reportsSkippedStale,
         creatorFields: S.creatorFields, creatorScanned: S.creatorScanned,
         workflowFieldUpdates: S.workflowFieldUpdates, workflowFieldUpdatesScanned: S.workflowFieldUpdatesScanned,
-        workflowRules: S.workflowRules, workflowRulesScanned: S.workflowRulesScanned
+        workflowRules: S.workflowRules, workflowRulesScanned: S.workflowRulesScanned,
+        scoringRules: S.scoringRules, scoringRulesScanned: S.scoringRulesScanned,
+        blueprintFields: S.blueprintFields, blueprintFieldsScanned: S.blueprintFieldsScanned
       }));
     } catch (e) { /* cache is best-effort */ }
     finishScan();
@@ -642,7 +648,7 @@ function scanWorkflowRules() {
         var full = (detail && detail.workflow_rules && detail.workflow_rules[0]) || detail;
         if (!full || !full.module) { failures++; return; }
         S.workflowRules.push({
-          id: full.id, name: full.name, moduleApiName: full.module.api_name,
+          id: full.id, name: full.name, moduleApiName: full.module.api_name, moduleId: full.module.id,
           triggerFields: extractTriggerFieldRefs(full),
           criteriaFields: extractConditionFieldRefs(full)
         });
@@ -660,6 +666,73 @@ function scanWorkflowRules() {
   }).catch(function (err) {
     showError("Workflow rules scan failed (field update matching is unaffected). Check the \"" + $("conn-crm").value +
       "\" connection and its ZohoCRM.settings.workflow_rules.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
+// Unlike workflow rules, the scoring rules LIST endpoint already embeds each
+// rule's full field_rules[].criteria tree, so no per-rule detail fetch is
+// needed here. signal_rules (email opens/clicks) are a parallel, non-field
+// scoring mechanism and are intentionally not extracted.
+function extractScoringFieldRefs(rule) {
+  var refs = [];
+  (rule.field_rules || []).forEach(function (fr) { walkCriteriaGroup(fr.criteria, refs); });
+  return refs;
+}
+function scanScoringRules() {
+  S.scoringRules = []; S.scoringRulesScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM scoring rules&hellip;";
+  showLoader("Listing CRM scoring rules...");
+  function listPage(page, all) {
+    return crmGet("/settings/automation/scoring_rules?page=" + page + "&per_page=200").then(function (body) {
+      ((body && body.scoring_rules) || []).forEach(function (rule) {
+        if (!rule.module) return;
+        all.push({
+          id: rule.id, name: rule.name, moduleApiName: rule.module.api_name, moduleId: rule.module.id,
+          criteriaFields: extractScoringFieldRefs(rule)
+        });
+      });
+      var info = body && body.info;
+      return (info && info.more_records) ? listPage(page + 1, all) : all;
+    });
+  }
+  return listPage(1, []).then(function (all) {
+    S.scoringRules = all;
+    S.scoringRulesScanned = true;
+  }).catch(function (err) {
+    showError("Scoring rules scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.scoring_rules.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
+// The Blueprints list endpoint gives each blueprint's single governing
+// process field directly (e.g. the "Status" picklist driving the flow), no
+// per-blueprint detail fetch needed. Per-transition mandatory fields
+// (during_inputs) and per-transition criteria aren't included here: that API
+// requires already knowing transition IDs with no documented way to
+// enumerate them, so that finer-grained piece isn't buildable right now.
+function scanBlueprints() {
+  S.blueprintFields = []; S.blueprintFieldsScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM blueprints&hellip;";
+  showLoader("Listing CRM blueprints...");
+  function listPage(page, all) {
+    return crmGet("/settings/blueprints?page=" + page + "&per_page=200").then(function (body) {
+      ((body && body.blueprints) || []).forEach(function (bp) {
+        if (!bp.module || !bp.field) return;
+        all.push({
+          id: bp.id, name: bp.name, moduleApiName: bp.module.api_name, moduleId: bp.module.id,
+          fieldApiName: bp.field.api_name, pipelineName: (bp.pipeline && bp.pipeline.name) || null
+        });
+      });
+      var info = body && body.info;
+      return (info && info.more_records) ? listPage(page + 1, all) : all;
+    });
+  }
+  return listPage(1, []).then(function (all) {
+    S.blueprintFields = all;
+    S.blueprintFieldsScanned = true;
+  }).catch(function (err) {
+    showError("Blueprints scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.blueprint.READ scope.\n" + String(err && err.message || err));
   });
 }
 
@@ -843,7 +916,7 @@ function scanWorkflowFieldUpdates() {
         if (!fu.module || !fu.field) return;
         S.workflowFieldUpdates.push({
           id: fu.id, name: fu.name,
-          moduleApiName: fu.module.api_name, fieldApiName: fu.field.api_name,
+          moduleApiName: fu.module.api_name, moduleId: fu.module.id, fieldApiName: fu.field.api_name,
           value: fu.value, valueType: fu.type, featureType: fu.feature_type
         });
       });
@@ -870,6 +943,8 @@ $("btn-cache").onclick = function () {
   S.creatorFields = c.creatorFields || []; S.creatorScanned = !!c.creatorScanned;
   S.workflowFieldUpdates = c.workflowFieldUpdates || []; S.workflowFieldUpdatesScanned = !!c.workflowFieldUpdatesScanned;
   S.workflowRules = c.workflowRules || []; S.workflowRulesScanned = !!c.workflowRulesScanned;
+  S.scoringRules = c.scoringRules || []; S.scoringRulesScanned = !!c.scoringRulesScanned;
+  S.blueprintFields = c.blueprintFields || []; S.blueprintFieldsScanned = !!c.blueprintFieldsScanned;
   S.orgId = c.orgId; S.scannedAt = c.at; $("dc").value = c.dc;
   finishScan();
 };
@@ -892,6 +967,8 @@ function finishScan() {
   }
   if (S.workflowFieldUpdatesScanned) stats.push("<b>" + S.workflowFieldUpdates.length + "</b> workflow field updates");
   if (S.workflowRulesScanned) stats.push("<b>" + S.workflowRules.length + "</b> workflow rules");
+  if (S.scoringRulesScanned) stats.push("<b>" + S.scoringRules.length + "</b> scoring rules");
+  if (S.blueprintFieldsScanned) stats.push("<b>" + S.blueprintFields.length + "</b> blueprints");
   var p = $("scan-progress");
   p.classList.add("done");
   p.innerHTML = "<b>Last scan · " + esc(S.scannedAt) + "</b>" +

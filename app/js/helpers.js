@@ -32,6 +32,16 @@ function fieldUpdatePageUrl(fieldUpdateId) {
     ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/field-updates/" + fieldUpdateId
     : crmWebBase() + "/crm/settings/field-updates";
 }
+function scoringRulePageUrl(ruleId) {
+  return S.crmZgid
+    ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/scoring-rules/" + ruleId
+    : crmWebBase() + "/crm/settings/scoring-rules";
+}
+function blueprintPageUrl(blueprintId, moduleApiName) {
+  return S.crmZgid
+    ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/blueprint/" + blueprintId + "?module=" + moduleApiName
+    : crmWebBase() + "/crm/settings/blueprint";
+}
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
 // "Account Name", "Account_Name" and "account_name" all normalize to account_name
