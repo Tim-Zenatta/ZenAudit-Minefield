@@ -401,8 +401,6 @@ $("btn-scan").onclick = function () {
   }).then(function () {
     return doWorkflows ? scanConnectedWorkflows() : null;
   }).then(function () {
-    return doWorkflows ? scanDebugAutomationTasksAndEmails() : null;
-  }).then(function () {
     S.scannedAt = new Date().toLocaleString();
     try {
       localStorage.setItem(SCAN_KEY, JSON.stringify({
@@ -848,31 +846,6 @@ function scanConnectedWorkflows() {
     showError("Connected workflows scan failed. Check the \"" + $("conn-crm").value +
       "\" connection and its ZohoCRM.settings.connected_workflows.READ scope.\n" + String(err && err.message || err));
   });
-}
-
-// TEMP DEBUG (remove once the Automation Task merge_field shape and Email
-// Notification recipient/body structure are confirmed): dumps raw config
-// for anything named "debug" so it's easy to find in the console instead of
-// logging every task/notification in the org.
-function scanDebugAutomationTasksAndEmails() {
-  return crmGet("/settings/automation/tasks").then(function (body) {
-    var tasks = ((body && body.tasks) || []).filter(function (t) { return /debug/i.test(t.name || ""); });
-    return runQueue(tasks, function (t) {
-      return crmGet("/settings/automation/tasks/" + t.id).then(function (detail) {
-        console.log("[ZenAudit debug] automation task \"" + t.name + "\":", JSON.parse(JSON.stringify(detail)));
-      }).catch(function (err) { console.log("[ZenAudit debug] automation task fetch failed:", err); });
-    });
-  }).catch(function (err) { console.log("[ZenAudit debug] automation tasks list failed:", err); })
-    .then(function () {
-      return crmGet("/settings/automation/email_notifications").then(function (body) {
-        var emails = ((body && body.email_notifications) || []).filter(function (e) { return /debug/i.test(e.name || ""); });
-        return runQueue(emails, function (e) {
-          return crmGet("/settings/automation/email_notifications/" + e.id).then(function (detail) {
-            console.log("[ZenAudit debug] email notification \"" + e.name + "\":", JSON.parse(JSON.stringify(detail)));
-          }).catch(function (err) { console.log("[ZenAudit debug] email notification fetch failed:", err); });
-        });
-      }).catch(function (err) { console.log("[ZenAudit debug] email notifications list failed:", err); });
-    });
 }
 
 // filterByFolder is only ever true for the reverse audit, which is the one
