@@ -49,6 +49,11 @@ function chipFor(f) {
     out = "<span class='chip clear' title='Synced to Analytics, but nothing depends on the column" +
       (S.functionsScanned ? ", no CRM function references it" : "") +
       (S.reportsScanned ? ", no CRM report references it" : "") + "'>unused</span>";
+  } else if (cat === "unmatched") {
+    out = "<span class='chip na' title='No matching field found by name in the scanned Books/Creator sources'>" +
+      unmatchedLabel() + "</span>";
+  } else if (cat === "matched") {
+    out = ""; // the Books/Creator badge below already carries the match detail
   } else {
     var u = usageCounts(S.results[f.api_name]);
     out = "";
@@ -87,14 +92,15 @@ function chipFor(f) {
 var FILTERS = [
   { key: "all", label: "All" }, { key: "used", label: "In use" },
   { key: "clear", label: "Unused" }, { key: "na", label: "Not in Analytics" },
+  { key: "matched", label: "Matched" }, { key: "unmatched", label: "No match" },
   { key: "unchecked", label: "Unchecked" }
 ];
 function renderFilters() {
-  var counts = { all: S.fields.length, used: 0, clear: 0, na: 0, unchecked: 0 };
+  var counts = { all: S.fields.length, used: 0, clear: 0, na: 0, matched: 0, unmatched: 0, unchecked: 0 };
   S.fields.forEach(function (f) { counts[categoryOf(f)]++; });
   $("field-filters").innerHTML = FILTERS.map(function (fl) {
     if (fl.key !== "all" && !counts[fl.key]) return "";
-    var label = fl.key === "na" ? (S.functionsScanned ? "Not synced" : "Not in Analytics") : fl.label;
+    var label = fl.key === "na" ? naLabel() : fl.key === "unmatched" ? unmatchedLabel() : fl.label;
     return "<button data-f='" + fl.key + "' class='" + (S.filter === fl.key ? "active" : "") + "'>" +
       label + " (" + counts[fl.key] + ")</button>";
   }).join("");
@@ -143,9 +149,17 @@ $("btn-check-all").onclick = function () {
     hideMini();
     S.checking = false;
     $("btn-check-all").disabled = false;
-    var used = S.fields.filter(function (f) { return categoryOf(f) === "used"; }).length;
-    $("check-progress").innerHTML = "All fields checked: <b>" + used + "</b> in use, <b>" +
-      (S.fields.length - used) + "</b> safe or not synced.";
+    var used = 0, matched = 0, rest = 0;
+    S.fields.forEach(function (f) {
+      var c = categoryOf(f);
+      if (c === "used") used++;
+      else if (c === "matched") matched++;
+      else rest++;
+    });
+    var msg = "All fields checked: <b>" + used + "</b> in use";
+    msg += usageScanned() ? (", <b>" + rest + "</b> safe or not synced.")
+      : (", <b>" + matched + "</b> matched by name, <b>" + rest + "</b> no match.");
+    $("check-progress").innerHTML = msg;
     renderFieldList();
   });
 };
@@ -172,6 +186,8 @@ $("btn-export").onclick = function () {
     });
     var verdict = cat === "used" ? "In use"
       : cat === "na" ? (S.functionsScanned ? "Not synced (absent from Analytics, no function references)" : "Not in Analytics")
+      : cat === "matched" ? "Matched by name in Books/Creator (informational)"
+      : cat === "unmatched" ? "No Books/Creator name match (informational)"
       : "Unused (synced to Analytics, nothing depends on it)";
     var booksMatches = (r.books || []).map(function (b) { return b.entityLabel + ": " + b.label; }).join("; ");
     var creatorMatchesStr = (r.creator || []).map(function (c) { return c.appLabel + " / " + c.formLabel + ": " + c.label; }).join("; ");
@@ -231,6 +247,14 @@ function renderDetail(f) {
       "<small>" + (r.notSynced ? "Not synced to Analytics; found in CRM Deluge code only. " : "") +
       "Update or retire these before deleting. Scope: " + scope + ".</small></div>" +
       "<div class='verdict-breakdown'>" + breakdown + "</div></div>";
+  } else if (!usageScanned() && (S.booksScanned || S.creatorScanned)) {
+    var nameMatched = (r.books && r.books.length) || (r.creator && r.creator.length);
+    html += nameMatched
+      ? "<div class='verdict clear'><b>Matched by name in Books/Creator</b>" +
+        "<small>Analytics, CRM functions, and reports weren't part of this scan, so this reflects a name match only, not a usage check. Scope: " + scope + ".</small></div>"
+      : "<div class='verdict na'><b>" + unmatchedLabel() + "</b><small>No field named like &ldquo;" +
+        esc(f.label) + "&rdquo; / " + esc(f.api_name) + " found in the scanned Books/Creator sources. " +
+        "Analytics, CRM functions, and reports weren't part of this scan. Scope: " + scope + ".</small></div>";
   } else if (r.notSynced) {
     html += "<div class='verdict na'><b>Not found in Analytics" +
       (S.functionsScanned ? " or CRM Deluge functions" : "") +

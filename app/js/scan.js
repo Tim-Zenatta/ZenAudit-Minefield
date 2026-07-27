@@ -373,6 +373,7 @@ $("btn-scan").onclick = function () {
   if (doBooks && !S.booksOrgId) { showError("Select a Books organization before scanning."); return; }
   if (doCreator && !selectedCreatorApps().length) { showError("Select at least one Zoho Creator app before scanning."); return; }
   S.scanning = true;
+  S.analyticsScanned = doAn;
   $("btn-scan").disabled = true;
   $("scan-progress").classList.remove("done");
   S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {}; S.results = {};
@@ -390,7 +391,7 @@ $("btn-scan").onclick = function () {
     try {
       localStorage.setItem(SCAN_KEY, JSON.stringify({
         at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
-        tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
+        tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount, analyticsScanned: S.analyticsScanned,
         functions: S.functions, functionsScanned: S.functionsScanned,
         booksFields: S.booksFields, booksScanned: S.booksScanned, booksOrgId: S.booksOrgId,
         reports: S.reports, reportsScanned: S.reportsScanned, reportsSkippedStale: S.reportsSkippedStale,
@@ -747,6 +748,7 @@ function scanFunctions() {
 $("btn-cache").onclick = function () {
   var c = JSON.parse(localStorage.getItem(SCAN_KEY));
   S.tables = c.tables; S.queryTables = c.queryTables; S.viewCount = c.viewCount;
+  S.analyticsScanned = c.analyticsScanned != null ? !!c.analyticsScanned : (c.tables || []).length > 0;
   S.functions = c.functions || []; S.functionsScanned = !!c.functionsScanned;
   S.booksFields = c.booksFields || []; S.booksScanned = !!c.booksScanned; S.booksOrgId = c.booksOrgId || null;
   S.reports = c.reports || []; S.reportsScanned = !!c.reportsScanned;

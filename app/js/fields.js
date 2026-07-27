@@ -305,10 +305,25 @@ function hitCount(result) {
   }, 0) + result.sql.length + (result.functions || []).length + (result.reports || []).length;
 }
 
+// Whether this scan actually checked CRM field usage (Analytics sync, CRM
+// functions, or reports) rather than just the informational Books/Creator
+// name-match sources. notSynced/hitCount only mean something against these.
+function usageScanned() { return S.analyticsScanned || S.functionsScanned || S.reportsScanned; }
+
 function categoryOf(f) {
   var r = S.results[f.api_name];
   if (!r) return "unchecked";
   if (hitCount(r) > 0) return "used"; // function/report hits count even when not synced to Analytics
+  if (!usageScanned()) {
+    // Only Books/Creator (informational, name-matched sources) were scanned:
+    // there's nothing to say about Analytics sync/CRM usage, so fall back to
+    // whether this field matched by name instead of mislabeling it "na".
+    if (S.booksScanned || S.creatorScanned) {
+      var matched = (r.books && r.books.length) || (r.creator && r.creator.length);
+      return matched ? "matched" : "unmatched";
+    }
+    return "unchecked";
+  }
   return r.notSynced ? "na" : "clear";
 }
 
@@ -316,6 +331,14 @@ function categoryOf(f) {
 // nothing depends on it; gray "not synced" = absent from Analytics entirely.
 // Both imply no CRM function/report references (those force the used state).
 function naLabel() { return (S.functionsScanned || S.reportsScanned) ? "not synced" : "not in Analytics"; }
+
+// Mirrors naLabel for the Books/Creator-only scan case (see categoryOf).
+function unmatchedLabel() {
+  var parts = [];
+  if (S.booksScanned) parts.push("Books");
+  if (S.creatorScanned) parts.push("Creator");
+  return "no " + parts.join("/") + " match";
+}
 
 function usageCounts(r) {
   var an = r.sql.length, fn = (r.functions || []).length, rpt = (r.reports || []).length;

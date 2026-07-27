@@ -8,6 +8,7 @@ var S = {
   folders: [],        // {folderId, folderName, wsId, wsName, selected}
   tables: [],         // {wsId, wsName, viewId, viewName, columns:[{columnId, columnName}]}
   queryTables: [],    // {wsId, wsName, viewId, viewName, sql}
+  analyticsScanned: false,
   functions: [],      // {id, name, code}
   functionsScanned: false,
   booksOrgId: null,
