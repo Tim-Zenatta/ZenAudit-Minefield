@@ -14,6 +14,24 @@ function functionsPageUrl() {
     ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/functions/myFunctions"
     : crmWebBase() + "/crm/settings/functions";
 }
+// Deep links confirmed against a live org; without zgid resolved yet, fall
+// back to the generic list page rather than guess whether an org-less path
+// still accepts the record ID, same caution as functionsPageUrl's fallback.
+function reportPageUrl(reportId) {
+  return S.crmZgid
+    ? crmWebBase() + "/crm/org" + S.crmZgid + "/tab/Reports/" + reportId
+    : crmWebBase() + "/crm/tab/Reports";
+}
+function workflowRulePageUrl(ruleId) {
+  return S.crmZgid
+    ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/workflow-rules/" + ruleId
+    : crmWebBase() + "/crm/settings/workflow-rules";
+}
+function fieldUpdatePageUrl(fieldUpdateId) {
+  return S.crmZgid
+    ? crmWebBase() + "/crm/org" + S.crmZgid + "/settings/field-updates/" + fieldUpdateId
+    : crmWebBase() + "/crm/settings/field-updates";
+}
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
 // "Account Name", "Account_Name" and "account_name" all normalize to account_name

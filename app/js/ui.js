@@ -362,7 +362,7 @@ function renderDetail(f) {
       " <span class='gcount'>" + r.reports.length + (r.reports.length > 1 ? " reports" : " report") + "</span></h3>";
     html += r.reports.map(function (h) {
       var vtype = "report " + h.kind + (h.confident ? "" : " - unverified match");
-      return usageCard(vtype, h.reportName, h.folderName, null, "");
+      return usageCard(vtype, h.reportName, h.folderName, reportPageUrl(h.reportId), "", "Open report &rarr;");
     }).join("");
   }
   if ((r.workflows || []).length) {
@@ -370,21 +370,22 @@ function renderDetail(f) {
       " <span class='gcount'>" + r.workflows.length + (r.workflows.length > 1 ? " field updates" : " field update") + "</span></h3>";
     html += r.workflows.map(function (h) {
       var val = Array.isArray(h.value) ? h.value.join(", ") : h.value;
-      return usageCard("workflow field update", h.name, h.featureType || null, null, val ? "sets to: " + val : "");
+      return usageCard("workflow field update", h.name, h.featureType || null, fieldUpdatePageUrl(h.id),
+        val ? "sets to: " + val : "", "Open field update &rarr;");
     }).join("");
   }
   if ((r.triggers || []).length) {
     html += "<h3 class='usage-group' id='section-wf-triggers'>Workflow rules triggered off " + esc(f.api_name) +
       " <span class='gcount'>" + r.triggers.length + (r.triggers.length > 1 ? " rules" : " rule") + "</span></h3>";
     html += r.triggers.map(function (h) {
-      return usageCard("rule trigger", h.name, null, null, "");
+      return usageCard("rule trigger", h.name, null, workflowRulePageUrl(h.id), "", "Open workflow rule &rarr;");
     }).join("");
   }
   if ((r.criteria || []).length) {
     html += "<h3 class='usage-group' id='section-wf-criteria'>Workflow rules with firing criteria on " + esc(f.api_name) +
       " <span class='gcount'>" + r.criteria.length + (r.criteria.length > 1 ? " rules" : " rule") + "</span></h3>";
     html += r.criteria.map(function (h) {
-      return usageCard("rule criteria", h.name, null, null, "");
+      return usageCard("rule criteria", h.name, null, workflowRulePageUrl(h.id), "", "Open workflow rule &rarr;");
     }).join("");
   }
   if ((r.books || []).length) {
