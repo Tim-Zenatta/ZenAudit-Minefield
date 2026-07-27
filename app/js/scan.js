@@ -397,6 +397,12 @@ $("btn-scan").onclick = function () {
   }).then(function () {
     return doWorkflows ? scanBlueprints() : null;
   }).then(function () {
+    return doWorkflows ? scanWebhooks() : null;
+  }).then(function () {
+    return doWorkflows ? scanConnectedWorkflows() : null;
+  }).then(function () {
+    return doWorkflows ? scanDebugAutomationTasksAndEmails() : null;
+  }).then(function () {
     S.scannedAt = new Date().toLocaleString();
     try {
       localStorage.setItem(SCAN_KEY, JSON.stringify({
@@ -409,7 +415,9 @@ $("btn-scan").onclick = function () {
         workflowFieldUpdates: S.workflowFieldUpdates, workflowFieldUpdatesScanned: S.workflowFieldUpdatesScanned,
         workflowRules: S.workflowRules, workflowRulesScanned: S.workflowRulesScanned,
         scoringRules: S.scoringRules, scoringRulesScanned: S.scoringRulesScanned,
-        blueprintFields: S.blueprintFields, blueprintFieldsScanned: S.blueprintFieldsScanned
+        blueprintFields: S.blueprintFields, blueprintFieldsScanned: S.blueprintFieldsScanned,
+        webhookActions: S.webhookActions, webhookActionsScanned: S.webhookActionsScanned,
+        connectedWorkflowRules: S.connectedWorkflowRules, connectedWorkflowRulesScanned: S.connectedWorkflowRulesScanned
       }));
     } catch (e) { /* cache is best-effort */ }
     finishScan();
@@ -736,6 +744,137 @@ function scanBlueprints() {
   });
 }
 
+// Webhook parameter values embed fields as Zoho's self-describing merge-tag
+// syntax ${!Module.Field}, naming both module and field explicitly, unlike a
+// bare Deluge function search there's no cross-module ambiguity to guard
+// against. Walks every string value anywhere in the webhook object rather
+// than hardcoding each parameter location (headers, body.form_data_content,
+// url, url_parameters can all carry these, confirmed against the docs), so
+// nothing gets missed. Note: the module name embedded in the tag is
+// whatever string Zoho's merge-tag engine renders, which can differ from a
+// module's api_name for legacy-renamed modules (the same Deals/Potentials
+// quirk fixed elsewhere) - there's no module id inside the tag text to
+// correct for that here.
+var MERGE_TAG_RE = /\$\{!([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\}/g;
+function extractMergeTagFieldRefs(obj) {
+  var refs = [];
+  (function walk(o) {
+    if (!o || typeof o !== "object") return;
+    Object.keys(o).forEach(function (k) {
+      var v = o[k];
+      if (typeof v === "string") {
+        var m;
+        MERGE_TAG_RE.lastIndex = 0;
+        while ((m = MERGE_TAG_RE.exec(v))) refs.push({ moduleApiName: m[1], fieldApiName: m[2] });
+      } else if (v && typeof v === "object") {
+        walk(v);
+      }
+    });
+  })(obj);
+  return refs;
+}
+function scanWebhooks() {
+  S.webhookActions = []; S.webhookActionsScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM webhooks&hellip;";
+  showLoader("Listing CRM webhooks...");
+  function listPage(page, all) {
+    return crmGet("/settings/automation/webhooks?page=" + page + "&per_page=200").then(function (body) {
+      ((body && body.webhooks) || []).forEach(function (wh) {
+        if (!wh.module) return;
+        all.push({ id: wh.id, name: wh.name, moduleApiName: wh.module.api_name, fieldRefs: extractMergeTagFieldRefs(wh) });
+      });
+      var info = body && body.info;
+      return (info && info.more_records) ? listPage(page + 1, all) : all;
+    });
+  }
+  return listPage(1, []).then(function (all) {
+    S.webhookActions = all;
+    S.webhookActionsScanned = true;
+  }).catch(function (err) {
+    showError("Webhooks scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.automation_actions.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
+// Connected Workflows (Zoho Flow-triggered rules) use the identical
+// execute_when/conditions criteria tree as regular Workflow Rules (confirmed
+// against the docs), so the same walkCriteriaGroup-based extraction applies
+// directly. Three-level fetch: list connected workflows, then each one's
+// rules (gives trigger criteria inline, per the docs), then each rule's own
+// detail (needed for firing conditions, which the rules-list response does
+// not include). A rule has no name of its own, only an id, so it's labeled
+// by its parent connected workflow's name (plus a rule index when a
+// workflow has more than one rule).
+function scanConnectedWorkflows() {
+  S.connectedWorkflowRules = []; S.connectedWorkflowRulesScanned = false;
+  $("scan-progress").innerHTML = "Listing connected workflows&hellip;";
+  showLoader("Listing connected workflows...");
+  var failures = 0;
+  function listWorkflows(page, all) {
+    return crmGet("/settings/connected_workflows?page=" + page + "&per_page=200").then(function (body) {
+      all = all.concat((body && body.connected_workflows) || []);
+      var info = body && body.info;
+      return (info && info.more_records) ? listWorkflows(page + 1, all) : all;
+    });
+  }
+  return listWorkflows(1, []).then(function (workflows) {
+    return runQueue(workflows, function (cw) {
+      return crmGet("/settings/connected_workflows/" + cw.id + "/rules").then(function (body) {
+        var rules = (body && body.rules) || [];
+        return runQueue(rules, function (rule) {
+          return crmGet("/settings/connected_workflows/" + cw.id + "/rules/" + rule.id).then(function (detail) {
+            var full = (detail && detail.rules && detail.rules[0]) || detail;
+            var moduleObj = full && full.module;
+            if (!full || !moduleObj) { failures++; return; }
+            S.connectedWorkflowRules.push({
+              id: full.id, name: cw.name + (rules.length > 1 ? " (rule " + (rules.indexOf(rule) + 1) + ")" : ""),
+              moduleApiName: moduleObj.api_name, moduleId: moduleObj.id,
+              triggerFields: extractTriggerFieldRefs(full),
+              criteriaFields: extractConditionFieldRefs(full)
+            });
+          }).catch(function () { failures++; });
+        });
+      }).catch(function () { failures++; });
+    }, function (i, n, cw) {
+      $("scan-progress").innerHTML = "Reading connected workflow <b>" + i + " / " + n + "</b> - " + esc(cw.name || "");
+      showLoader("Reading connected workflow " + i + " / " + n, n ? i / n : null);
+    });
+  }).then(function () {
+    S.connectedWorkflowRulesScanned = true;
+    if (failures > 0) {
+      showError("Some connected workflow rules could not be read (other automation matching is unaffected).");
+    }
+  }).catch(function (err) {
+    showError("Connected workflows scan failed. Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.connected_workflows.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
+// TEMP DEBUG (remove once the Automation Task merge_field shape and Email
+// Notification recipient/body structure are confirmed): dumps raw config
+// for anything named "debug" so it's easy to find in the console instead of
+// logging every task/notification in the org.
+function scanDebugAutomationTasksAndEmails() {
+  return crmGet("/settings/automation/tasks").then(function (body) {
+    var tasks = ((body && body.tasks) || []).filter(function (t) { return /debug/i.test(t.name || ""); });
+    return runQueue(tasks, function (t) {
+      return crmGet("/settings/automation/tasks/" + t.id).then(function (detail) {
+        console.log("[ZenAudit debug] automation task \"" + t.name + "\":", JSON.parse(JSON.stringify(detail)));
+      }).catch(function (err) { console.log("[ZenAudit debug] automation task fetch failed:", err); });
+    });
+  }).catch(function (err) { console.log("[ZenAudit debug] automation tasks list failed:", err); })
+    .then(function () {
+      return crmGet("/settings/automation/email_notifications").then(function (body) {
+        var emails = ((body && body.email_notifications) || []).filter(function (e) { return /debug/i.test(e.name || ""); });
+        return runQueue(emails, function (e) {
+          return crmGet("/settings/automation/email_notifications/" + e.id).then(function (detail) {
+            console.log("[ZenAudit debug] email notification \"" + e.name + "\":", JSON.parse(JSON.stringify(detail)));
+          }).catch(function (err) { console.log("[ZenAudit debug] email notification fetch failed:", err); });
+        });
+      }).catch(function (err) { console.log("[ZenAudit debug] email notifications list failed:", err); });
+    });
+}
+
 // filterByFolder is only ever true for the reverse audit, which is the one
 // case that actually needs it (narrowing a mixed workspace so its Analytics
 // -> CRM name matching doesn't drown in unrelated apps' tables). A normal
@@ -945,6 +1084,8 @@ $("btn-cache").onclick = function () {
   S.workflowRules = c.workflowRules || []; S.workflowRulesScanned = !!c.workflowRulesScanned;
   S.scoringRules = c.scoringRules || []; S.scoringRulesScanned = !!c.scoringRulesScanned;
   S.blueprintFields = c.blueprintFields || []; S.blueprintFieldsScanned = !!c.blueprintFieldsScanned;
+  S.webhookActions = c.webhookActions || []; S.webhookActionsScanned = !!c.webhookActionsScanned;
+  S.connectedWorkflowRules = c.connectedWorkflowRules || []; S.connectedWorkflowRulesScanned = !!c.connectedWorkflowRulesScanned;
   S.orgId = c.orgId; S.scannedAt = c.at; $("dc").value = c.dc;
   finishScan();
 };
@@ -969,6 +1110,8 @@ function finishScan() {
   if (S.workflowRulesScanned) stats.push("<b>" + S.workflowRules.length + "</b> workflow rules");
   if (S.scoringRulesScanned) stats.push("<b>" + S.scoringRules.length + "</b> scoring rules");
   if (S.blueprintFieldsScanned) stats.push("<b>" + S.blueprintFields.length + "</b> blueprints");
+  if (S.webhookActionsScanned) stats.push("<b>" + S.webhookActions.length + "</b> webhooks");
+  if (S.connectedWorkflowRulesScanned) stats.push("<b>" + S.connectedWorkflowRules.length + "</b> connected workflow rules");
   var p = $("scan-progress");
   p.classList.add("done");
   p.innerHTML = "<b>Last scan · " + esc(S.scannedAt) + "</b>" +

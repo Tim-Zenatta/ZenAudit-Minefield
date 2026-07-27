@@ -41,6 +41,8 @@ function iconFor(vtype) {
     return svgIcon("<path d='M10 1.3l2.5 5.5 5.8.6-4.4 4 1.3 5.8L10 14.2l-5.2 3-1.3.9.9-5.9-4.4-4 5.8-.6z' fill='#e11d48'/>");
   if (t.indexOf("blueprint") >= 0)
     return svgIcon("<rect x='1.5' y='2.5' width='6' height='5' rx='1.2' fill='none' stroke='#0284c7' stroke-width='1.6'/><rect x='12.5' y='12.5' width='6' height='5' rx='1.2' fill='none' stroke='#0284c7' stroke-width='1.6'/><path d='M7.5 5h3a2 2 0 0 1 2 2v5.5' fill='none' stroke='#0284c7' stroke-width='1.6'/>");
+  if (t.indexOf("webhook") >= 0)
+    return svgIcon("<circle cx='6' cy='14' r='3' fill='none' stroke='#059669' stroke-width='1.8'/><circle cx='14' cy='6' r='3' fill='none' stroke='#059669' stroke-width='1.8'/><path d='M8.1 11.9l3.8-3.8' stroke='#059669' stroke-width='1.8' stroke-linecap='round'/>");
   if (t.indexOf("tabular") >= 0 || t.indexOf("table") >= 0)
     return svgIcon("<rect x='2' y='3' width='16' height='14' rx='1.5' fill='none' stroke='#64748b' stroke-width='1.6'/><rect x='2' y='3' width='16' height='4.5' fill='#64748b'/><path d='M2 12h16M8 7.5v9.5M13 7.5v9.5' stroke='#64748b' stroke-width='1.6'/>");
   return svgIcon("<rect x='4' y='2' width='12' height='16' rx='2' fill='none' stroke='#64748b' stroke-width='1.6'/><path d='M7 7h6M7 10.5h6M7 14h4' stroke='#64748b' stroke-width='1.6' stroke-linecap='round'/>");
@@ -106,6 +108,18 @@ function chipFor(f) {
     if (u.blueprint > 0) {
       out += "<span class='chip src-blueprint' title='governs " + u.blueprint + " blueprint" +
         (u.blueprint > 1 ? "s" : "") + "'>" + iconFor("blueprint") + u.blueprint + "</span>";
+    }
+    if (u.webhooks > 0) {
+      out += "<span class='chip src-webhook' title='referenced in " + u.webhooks + " webhook" +
+        (u.webhooks > 1 ? "s" : "") + "'>" + iconFor("webhook") + u.webhooks + "</span>";
+    }
+    if (u.cwTriggers > 0) {
+      out += "<span class='chip src-cwtrig' title='used as a trigger in " + u.cwTriggers + " connected workflow rule" +
+        (u.cwTriggers > 1 ? "s" : "") + "'>" + iconFor("trigger") + u.cwTriggers + "</span>";
+    }
+    if (u.cwCriteria > 0) {
+      out += "<span class='chip src-cwcrit' title='used in firing criteria for " + u.cwCriteria + " connected workflow rule" +
+        (u.cwCriteria > 1 ? "s" : "") + "'>" + iconFor("criteria") + u.cwCriteria + "</span>";
     }
   }
   // Books and Creator are both informational, matched by name only, so
@@ -229,6 +243,9 @@ $("btn-export").onclick = function () {
     (r.blueprint || []).forEach(function (h) {
       uses.push("blueprint: " + h.name + (h.pipelineName ? " (pipeline: " + h.pipelineName + ")" : ""));
     });
+    (r.webhooks || []).forEach(function (h) { uses.push("webhook: " + h.name); });
+    (r.cwTriggers || []).forEach(function (h) { uses.push("connected workflow trigger: " + h.name); });
+    (r.cwCriteria || []).forEach(function (h) { uses.push("connected workflow criteria: " + h.name); });
     var verdict = cat === "used" ? "In use"
       : cat === "na" ? (S.functionsScanned ? "Not synced (absent from Analytics, no function references)" : "Not in Analytics")
       : cat === "matched" ? "Matched by name in Books/Creator (informational)"
@@ -272,6 +289,8 @@ function renderDetail(f) {
     (S.workflowRulesScanned ? " / " + S.workflowRules.length + " workflow rules" : "") +
     (S.scoringRulesScanned ? " / " + S.scoringRules.length + " scoring rules" : "") +
     (S.blueprintFieldsScanned ? " / " + S.blueprintFields.length + " blueprints" : "") +
+    (S.webhookActionsScanned ? " / " + S.webhookActions.length + " webhooks" : "") +
+    (S.connectedWorkflowRulesScanned ? " / " + S.connectedWorkflowRules.length + " connected workflow rules" : "") +
     " scanned on " + S.scannedAt;
   if (n > 0) {
     var depViews = 0, cfCount = 0, afCount = 0;
@@ -292,7 +311,10 @@ function renderDetail(f) {
       { n: (r.triggers || []).length, label: "workflow rule triggers", icon: "trigger", target: "section-wf-triggers" },
       { n: (r.criteria || []).length, label: "workflow rule criteria", icon: "criteria", target: "section-wf-criteria" },
       { n: (r.scoring || []).length, label: "scoring rules", icon: "scoring", target: "section-scoring" },
-      { n: (r.blueprint || []).length, label: "blueprints", icon: "blueprint", target: "section-blueprint" }
+      { n: (r.blueprint || []).length, label: "blueprints", icon: "blueprint", target: "section-blueprint" },
+      { n: (r.webhooks || []).length, label: "webhooks", icon: "webhook", target: "section-webhooks" },
+      { n: (r.cwTriggers || []).length, label: "connected workflow triggers", icon: "trigger", target: "section-cw-triggers" },
+      { n: (r.cwCriteria || []).length, label: "connected workflow criteria", icon: "criteria", target: "section-cw-criteria" }
     ].filter(function (b) { return b.n > 0; }).map(function (b) {
       return "<span class='vb vb-link' onclick=\"__jumpTo('" + b.target + "')\">" +
         iconFor(b.icon) + "<b>" + b.n + "</b>&nbsp;" + b.label + "</span>";
@@ -433,6 +455,27 @@ function renderDetail(f) {
     html += r.blueprint.map(function (h) {
       return usageCard("blueprint", h.name, h.pipelineName || null, blueprintPageUrl(h.id, $("module-pick").value), "",
         "Open blueprint &rarr;");
+    }).join("");
+  }
+  if ((r.webhooks || []).length) {
+    html += "<h3 class='usage-group' id='section-webhooks'>Webhooks referencing " + esc(f.api_name) +
+      " <span class='gcount'>" + r.webhooks.length + (r.webhooks.length > 1 ? " webhooks" : " webhook") + "</span></h3>";
+    html += r.webhooks.map(function (h) {
+      return usageCard("webhook", h.name, null, null, "");
+    }).join("");
+  }
+  if ((r.cwTriggers || []).length) {
+    html += "<h3 class='usage-group' id='section-cw-triggers'>Connected workflow rules triggered off " + esc(f.api_name) +
+      " <span class='gcount'>" + r.cwTriggers.length + (r.cwTriggers.length > 1 ? " rules" : " rule") + "</span></h3>";
+    html += r.cwTriggers.map(function (h) {
+      return usageCard("connected automation trigger", h.name, null, null, "");
+    }).join("");
+  }
+  if ((r.cwCriteria || []).length) {
+    html += "<h3 class='usage-group' id='section-cw-criteria'>Connected workflow rules with firing criteria on " +
+      esc(f.api_name) + " <span class='gcount'>" + r.cwCriteria.length + (r.cwCriteria.length > 1 ? " rules" : " rule") + "</span></h3>";
+    html += r.cwCriteria.map(function (h) {
+      return usageCard("connected automation criteria", h.name, null, null, "");
     }).join("");
   }
   if ((r.books || []).length) {

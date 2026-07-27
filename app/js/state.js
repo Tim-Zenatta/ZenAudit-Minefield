@@ -31,6 +31,13 @@ var S = {
   scoringRulesScanned: false,
   blueprintFields: [], // {id, name, moduleApiName, moduleId, fieldApiName, pipelineName}
   blueprintFieldsScanned: false,
+  // webhookActions match on moduleApiName only (see extractMergeTagFieldRefs
+  // comment): merge-tag text names the module as a string, with no id to
+  // fall back on the way the other automation matchers can.
+  webhookActions: [], // {id, name, moduleApiName, fieldRefs:[{moduleApiName, fieldApiName}]}
+  webhookActionsScanned: false,
+  connectedWorkflowRules: [], // {id, name, moduleApiName, moduleId, triggerFields:[apiName], criteriaFields:[apiName]}
+  connectedWorkflowRulesScanned: false,
   viewCount: 0,
   modules: [],
   fieldMode: "crm",   // "crm" | "creator" — which source Step 2/3 are browsing

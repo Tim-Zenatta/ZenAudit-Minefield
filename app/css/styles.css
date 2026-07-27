@@ -206,6 +206,9 @@ button.secondary:hover:not(:disabled) { background: var(--zen-green-btn); color:
 .chip.src-crit { background: #E0E7FF; color: #4338ca; }
 .chip.src-score { background: #FFE4E6; color: #be123c; }
 .chip.src-blueprint { background: #E0F2FE; color: #0369a1; }
+.chip.src-webhook { background: #D1FAE5; color: #047857; }
+.chip.src-cwtrig { background: #FDE68A; color: #92400e; }
+.chip.src-cwcrit { background: #C7D2FE; color: #3730a3; }
 .chip.clear { background: #DFF7EC; color: #01784E; }
 .chip.used { background: #fbdcdc; color: #b3261e; }
 .chip.review { background: #fff3d6; color: #9a6b00; }
@@ -413,6 +416,9 @@ body.dark .chip.src-trig { background: rgba(234, 179, 8, .18); color: #fde047; }
 body.dark .chip.src-crit { background: rgba(99, 102, 241, .2); color: #a5b4fc; }
 body.dark .chip.src-score { background: rgba(225, 29, 72, .18); color: #fda4af; }
 body.dark .chip.src-blueprint { background: rgba(2, 132, 199, .2); color: #7dd3fc; }
+body.dark .chip.src-webhook { background: rgba(5, 150, 105, .18); color: #6ee7b7; }
+body.dark .chip.src-cwtrig { background: rgba(217, 119, 6, .2); color: #fcd34d; }
+body.dark .chip.src-cwcrit { background: rgba(79, 70, 229, .2); color: #c7d2fe; }
 body.dark .verdict.used {
   background: linear-gradient(135deg, #044B30, #06301f);
   border: 1px solid rgba(2, 213, 142, .3); color: #fff;
