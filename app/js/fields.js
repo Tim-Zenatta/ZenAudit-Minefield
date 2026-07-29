@@ -269,6 +269,107 @@ function reportHits(field) {
   return hits;
 }
 
+// Different CRM automation endpoints can disagree on a module's api_name
+// string for the same module (e.g. Deals' own module.api_name comes back as
+// "Deals" from Workflow Rules but "Potentials" from Blueprints in some
+// orgs, confirmed against a live org, not assumed) - the module id, however,
+// is consistent everywhere. All automation matching below keys off id
+// instead of api_name for exactly that reason.
+function currentModuleId() {
+  var apiName = $("module-pick").value;
+  var m = S.modules.filter(function (x) { return x.api_name === apiName; })[0];
+  return m ? m.id : null;
+}
+
+// Field Update actions name their target module + field by api_name/id
+// directly (Zoho's Field Update Actions API), so this is an exact match, not
+// a name/regex heuristic like functionHits/reportHits. Counts toward
+// hitCount/categoryOf just like functions and reports, since an exact match
+// is at least as trustworthy as those.
+function workflowFieldUpdateHits(field) {
+  if (!S.workflowFieldUpdatesScanned || !field.api_name) return [];
+  var moduleId = currentModuleId();
+  return S.workflowFieldUpdates.filter(function (fu) {
+    return fu.moduleId === moduleId && fu.fieldApiName === field.api_name;
+  }).map(function (fu) {
+    return { id: fu.id, name: fu.name, value: fu.value, valueType: fu.valueType, featureType: fu.featureType };
+  });
+}
+
+// Workflow rule triggers and firing conditions are also exact module/field
+// matches (see scanWorkflowRules/walkCriteriaGroup), so they count toward
+// the verdict just like workflow field updates. Kept as two separate hit
+// lists rather than merged, since "used as a trigger" and "used in firing
+// criteria" are different things to know about a field.
+function workflowTriggerHits(field) {
+  if (!S.workflowRulesScanned || !field.api_name) return [];
+  var moduleId = currentModuleId();
+  return S.workflowRules.filter(function (r) {
+    return r.moduleId === moduleId && r.triggerFields.indexOf(field.api_name) >= 0;
+  }).map(function (r) { return { id: r.id, name: r.name }; });
+}
+function workflowCriteriaHits(field) {
+  if (!S.workflowRulesScanned || !field.api_name) return [];
+  var moduleId = currentModuleId();
+  return S.workflowRules.filter(function (r) {
+    return r.moduleId === moduleId && r.criteriaFields.indexOf(field.api_name) >= 0;
+  }).map(function (r) { return { id: r.id, name: r.name }; });
+}
+
+// Scoring rules' field_rules criteria are the same exact module/field match
+// as workflow triggers/criteria (see extractScoringFieldRefs).
+function scoringRuleHits(field) {
+  if (!S.scoringRulesScanned || !field.api_name) return [];
+  var moduleId = currentModuleId();
+  return S.scoringRules.filter(function (r) {
+    return r.moduleId === moduleId && r.criteriaFields.indexOf(field.api_name) >= 0;
+  }).map(function (r) { return { id: r.id, name: r.name }; });
+}
+
+// A blueprint has exactly one governing field (e.g. Status), not a criteria
+// list, so this is a direct equality match rather than an array membership
+// check like the other workflow hit types.
+function blueprintHits(field) {
+  if (!S.blueprintFieldsScanned || !field.api_name) return [];
+  var moduleId = currentModuleId();
+  return S.blueprintFields.filter(function (bp) {
+    return bp.moduleId === moduleId && bp.fieldApiName === field.api_name;
+  }).map(function (bp) { return { id: bp.id, name: bp.name, pipelineName: bp.pipelineName }; });
+}
+
+// Webhook merge-tags name their module as a plain string (see
+// extractMergeTagFieldRefs), not an id, so unlike the other automation
+// matchers this compares against the module api_name directly - it can't be
+// corrected for the Deals/Potentials-style module-naming quirk since
+// there's no id inside the tag text to fall back on.
+function webhookHits(field) {
+  if (!S.webhookActionsScanned || !field.api_name) return [];
+  var currentModule = $("module-pick").value;
+  return S.webhookActions.filter(function (wh) {
+    return wh.fieldRefs.some(function (fr) {
+      return fr.moduleApiName === currentModule && fr.fieldApiName === field.api_name;
+    });
+  }).map(function (wh) { return { id: wh.id, name: wh.name }; });
+}
+
+// Connected workflow triggers/criteria reuse the exact same matching as
+// regular workflow rules (see scanConnectedWorkflows), just against a
+// separate list since they're a distinct automation feature.
+function connectedWorkflowTriggerHits(field) {
+  if (!S.connectedWorkflowRulesScanned || !field.api_name) return [];
+  var moduleId = currentModuleId();
+  return S.connectedWorkflowRules.filter(function (r) {
+    return r.moduleId === moduleId && r.triggerFields.indexOf(field.api_name) >= 0;
+  }).map(function (r) { return { id: r.id, name: r.name }; });
+}
+function connectedWorkflowCriteriaHits(field) {
+  if (!S.connectedWorkflowRulesScanned || !field.api_name) return [];
+  var moduleId = currentModuleId();
+  return S.connectedWorkflowRules.filter(function (r) {
+    return r.moduleId === moduleId && r.criteriaFields.indexOf(field.api_name) >= 0;
+  }).map(function (r) { return { id: r.id, name: r.name }; });
+}
+
 // Creator fields get the same Analytics-dependents + Deluge-function checks
 // as CRM fields (that's the actual point: knowing what breaks downstream),
 // just without the CRM-specific Books/Creator-name-match/Reports extras,
@@ -280,7 +381,11 @@ function checkField(field) {
     ? { columns: [], sql: sqlHits(field), functions: creatorFunctionHits(field), notSynced: matches.length === 0 }
     : {
         columns: [], sql: sqlHits(field), functions: functionHits(field), books: bookMatches(field),
-        creator: creatorMatches(field), reports: reportHits(field), notSynced: matches.length === 0
+        creator: creatorMatches(field), reports: reportHits(field), workflows: workflowFieldUpdateHits(field),
+        triggers: workflowTriggerHits(field), criteria: workflowCriteriaHits(field),
+        scoring: scoringRuleHits(field), blueprint: blueprintHits(field), webhooks: webhookHits(field),
+        cwTriggers: connectedWorkflowTriggerHits(field), cwCriteria: connectedWorkflowCriteriaHits(field),
+        notSynced: matches.length === 0
       };
   return runQueue(matches, function (m) {
     return getDependents(m).then(function (dep) {
@@ -302,26 +407,68 @@ function hitCount(result) {
   return result.columns.reduce(function (n, c) {
     if (!c.dep) return n;
     return n + c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
-  }, 0) + result.sql.length + (result.functions || []).length + (result.reports || []).length;
+  }, 0) + result.sql.length + (result.functions || []).length + (result.reports || []).length +
+    (result.workflows || []).length + (result.triggers || []).length + (result.criteria || []).length +
+    (result.scoring || []).length + (result.blueprint || []).length + (result.webhooks || []).length +
+    (result.cwTriggers || []).length + (result.cwCriteria || []).length;
+}
+
+// Whether this scan actually checked CRM field usage (Analytics sync, CRM
+// functions, reports, or any automation source) rather than just the
+// informational Books/Creator name-match sources. notSynced/hitCount only
+// mean something against these.
+function usageScanned() {
+  return S.analyticsScanned || S.functionsScanned || S.reportsScanned ||
+    S.workflowFieldUpdatesScanned || S.workflowRulesScanned ||
+    S.scoringRulesScanned || S.blueprintFieldsScanned ||
+    S.webhookActionsScanned || S.connectedWorkflowRulesScanned;
 }
 
 function categoryOf(f) {
   var r = S.results[f.api_name];
   if (!r) return "unchecked";
   if (hitCount(r) > 0) return "used"; // function/report hits count even when not synced to Analytics
+  if (!usageScanned()) {
+    // Only Books/Creator (informational, name-matched sources) were scanned:
+    // there's nothing to say about Analytics sync/CRM usage, so fall back to
+    // whether this field matched by name instead of mislabeling it "na".
+    if (S.booksScanned || S.creatorScanned) {
+      var matched = (r.books && r.books.length) || (r.creator && r.creator.length);
+      return matched ? "matched" : "unmatched";
+    }
+    return "unchecked";
+  }
   return r.notSynced ? "na" : "clear";
 }
 
 // Two flavors of safe-to-delete: green "unused" = synced to Analytics but
 // nothing depends on it; gray "not synced" = absent from Analytics entirely.
-// Both imply no CRM function/report references (those force the used state).
-function naLabel() { return (S.functionsScanned || S.reportsScanned) ? "not synced" : "not in Analytics"; }
+// Both imply no CRM function/report/automation references (those force used).
+function naLabel() {
+  return (S.functionsScanned || S.reportsScanned || S.workflowFieldUpdatesScanned ||
+    S.workflowRulesScanned || S.scoringRulesScanned || S.blueprintFieldsScanned ||
+    S.webhookActionsScanned || S.connectedWorkflowRulesScanned)
+    ? "not synced" : "not in Analytics";
+}
+
+// Mirrors naLabel for the Books/Creator-only scan case (see categoryOf).
+function unmatchedLabel() {
+  var parts = [];
+  if (S.booksScanned) parts.push("Books");
+  if (S.creatorScanned) parts.push("Creator");
+  return "no " + parts.join("/") + " match";
+}
 
 function usageCounts(r) {
-  var an = r.sql.length, fn = (r.functions || []).length, rpt = (r.reports || []).length;
+  var an = r.sql.length, fn = (r.functions || []).length, rpt = (r.reports || []).length,
+    wf = (r.workflows || []).length, trig = (r.triggers || []).length, crit = (r.criteria || []).length,
+    score = (r.scoring || []).length, bp = (r.blueprint || []).length, wh = (r.webhooks || []).length,
+    cwTrig = (r.cwTriggers || []).length, cwCrit = (r.cwCriteria || []).length;
   r.columns.forEach(function (c) {
     if (!c.dep) return;
     an += c.dep.views.length + c.dep.customFormulas.length + c.dep.aggregateFormulas.length;
   });
-  return { analytics: an, functions: fn, reports: rpt, books: (r.books || []).length, creator: (r.creator || []).length };
+  return { analytics: an, functions: fn, reports: rpt, workflows: wf, triggers: trig, criteria: crit,
+    scoring: score, blueprint: bp, webhooks: wh, cwTriggers: cwTrig, cwCriteria: cwCrit,
+    books: (r.books || []).length, creator: (r.creator || []).length };
 }

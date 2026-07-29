@@ -31,6 +31,18 @@ function iconFor(vtype) {
     return svgIcon("<rect x='1' y='1' width='18' height='18' rx='4' fill='#8b5cf6'/><text x='10' y='14.5' font-size='11' font-weight='bold' font-family='Raleway,sans-serif' fill='#fff' text-anchor='middle'>C</text>");
   if (t.indexOf("report") >= 0)
     return svgIcon("<rect x='2' y='1' width='16' height='18' rx='2' fill='none' stroke='#0891b2' stroke-width='1.6'/><path d='M5 6h10M5 10h10M5 14h6' stroke='#0891b2' stroke-width='1.6' stroke-linecap='round'/>");
+  if (t.indexOf("workflow") >= 0)
+    return svgIcon("<circle cx='10' cy='10' r='3.2' fill='none' stroke='#f97316' stroke-width='1.8'/><path d='M10 1.7v2.8M10 15.5v2.8M1.7 10h2.8M15.5 10h2.8M4.1 4.1l2 2M13.9 13.9l2 2M15.9 4.1l-2 2M6.1 13.9l-2 2' stroke='#f97316' stroke-width='1.8' stroke-linecap='round'/>");
+  if (t.indexOf("trigger") >= 0)
+    return svgIcon("<path d='M11 1 3 11h5l-1 8 8-10h-5z' fill='#eab308'/>");
+  if (t.indexOf("criteria") >= 0)
+    return svgIcon("<path d='M2 3h16l-6.5 7.5V16l-3 1.6v-7.1z' fill='none' stroke='#6366f1' stroke-width='1.6' stroke-linejoin='round'/>");
+  if (t.indexOf("scoring") >= 0)
+    return svgIcon("<path d='M10 1.3l2.5 5.5 5.8.6-4.4 4 1.3 5.8L10 14.2l-5.2 3-1.3.9.9-5.9-4.4-4 5.8-.6z' fill='#e11d48'/>");
+  if (t.indexOf("blueprint") >= 0)
+    return svgIcon("<rect x='1.5' y='2.5' width='6' height='5' rx='1.2' fill='none' stroke='#0284c7' stroke-width='1.6'/><rect x='12.5' y='12.5' width='6' height='5' rx='1.2' fill='none' stroke='#0284c7' stroke-width='1.6'/><path d='M7.5 5h3a2 2 0 0 1 2 2v5.5' fill='none' stroke='#0284c7' stroke-width='1.6'/>");
+  if (t.indexOf("webhook") >= 0)
+    return svgIcon("<circle cx='6' cy='14' r='3' fill='none' stroke='#059669' stroke-width='1.8'/><circle cx='14' cy='6' r='3' fill='none' stroke='#059669' stroke-width='1.8'/><path d='M8.1 11.9l3.8-3.8' stroke='#059669' stroke-width='1.8' stroke-linecap='round'/>");
   if (t.indexOf("tabular") >= 0 || t.indexOf("table") >= 0)
     return svgIcon("<rect x='2' y='3' width='16' height='14' rx='1.5' fill='none' stroke='#64748b' stroke-width='1.6'/><rect x='2' y='3' width='16' height='4.5' fill='#64748b'/><path d='M2 12h16M8 7.5v9.5M13 7.5v9.5' stroke='#64748b' stroke-width='1.6'/>");
   return svgIcon("<rect x='4' y='2' width='12' height='16' rx='2' fill='none' stroke='#64748b' stroke-width='1.6'/><path d='M7 7h6M7 10.5h6M7 14h4' stroke='#64748b' stroke-width='1.6' stroke-linecap='round'/>");
@@ -44,11 +56,24 @@ function chipFor(f) {
   } else if (cat === "na") {
     out = "<span class='chip na' title='No matching column exists in the scanned Analytics workspaces" +
       (S.functionsScanned ? ", no CRM function references it" : "") +
-      (S.reportsScanned ? ", no CRM report references it" : "") + "'>" + naLabel() + "</span>";
+      (S.reportsScanned ? ", no CRM report references it" : "") +
+      (S.workflowFieldUpdatesScanned ? ", no workflow field update references it" : "") +
+      (S.workflowRulesScanned ? ", no workflow rule trigger/criteria references it" : "") +
+      (S.scoringRulesScanned ? ", no scoring rule references it" : "") +
+      (S.blueprintFieldsScanned ? ", doesn't govern a blueprint" : "") + "'>" + naLabel() + "</span>";
   } else if (cat === "clear") {
     out = "<span class='chip clear' title='Synced to Analytics, but nothing depends on the column" +
       (S.functionsScanned ? ", no CRM function references it" : "") +
-      (S.reportsScanned ? ", no CRM report references it" : "") + "'>unused</span>";
+      (S.reportsScanned ? ", no CRM report references it" : "") +
+      (S.workflowFieldUpdatesScanned ? ", no workflow field update references it" : "") +
+      (S.workflowRulesScanned ? ", no workflow rule trigger/criteria references it" : "") +
+      (S.scoringRulesScanned ? ", no scoring rule references it" : "") +
+      (S.blueprintFieldsScanned ? ", doesn't govern a blueprint" : "") + "'>unused</span>";
+  } else if (cat === "unmatched") {
+    out = "<span class='chip na' title='No matching field found by name in the scanned Books/Creator sources'>" +
+      unmatchedLabel() + "</span>";
+  } else if (cat === "matched") {
+    out = ""; // the Books/Creator badge below already carries the match detail
   } else {
     var u = usageCounts(S.results[f.api_name]);
     out = "";
@@ -63,6 +88,38 @@ function chipFor(f) {
     if (u.reports > 0) {
       out += "<span class='chip src-rpt' title='" + u.reports + " CRM report reference" +
         (u.reports > 1 ? "s" : "") + "'>" + iconFor("report") + u.reports + "</span>";
+    }
+    if (u.workflows > 0) {
+      out += "<span class='chip src-wf' title='" + u.workflows + " workflow field update reference" +
+        (u.workflows > 1 ? "s" : "") + "'>" + iconFor("workflow") + u.workflows + "</span>";
+    }
+    if (u.triggers > 0) {
+      out += "<span class='chip src-trig' title='used as a trigger in " + u.triggers + " workflow rule" +
+        (u.triggers > 1 ? "s" : "") + "'>" + iconFor("trigger") + u.triggers + "</span>";
+    }
+    if (u.criteria > 0) {
+      out += "<span class='chip src-crit' title='used in firing criteria for " + u.criteria + " workflow rule" +
+        (u.criteria > 1 ? "s" : "") + "'>" + iconFor("criteria") + u.criteria + "</span>";
+    }
+    if (u.scoring > 0) {
+      out += "<span class='chip src-score' title='used in scoring criteria for " + u.scoring + " scoring rule" +
+        (u.scoring > 1 ? "s" : "") + "'>" + iconFor("scoring") + u.scoring + "</span>";
+    }
+    if (u.blueprint > 0) {
+      out += "<span class='chip src-blueprint' title='governs " + u.blueprint + " blueprint" +
+        (u.blueprint > 1 ? "s" : "") + "'>" + iconFor("blueprint") + u.blueprint + "</span>";
+    }
+    if (u.webhooks > 0) {
+      out += "<span class='chip src-webhook' title='referenced in " + u.webhooks + " webhook" +
+        (u.webhooks > 1 ? "s" : "") + "'>" + iconFor("webhook") + u.webhooks + "</span>";
+    }
+    if (u.cwTriggers > 0) {
+      out += "<span class='chip src-cwtrig' title='used as a trigger in " + u.cwTriggers + " connected workflow rule" +
+        (u.cwTriggers > 1 ? "s" : "") + "'>" + iconFor("trigger") + u.cwTriggers + "</span>";
+    }
+    if (u.cwCriteria > 0) {
+      out += "<span class='chip src-cwcrit' title='used in firing criteria for " + u.cwCriteria + " connected workflow rule" +
+        (u.cwCriteria > 1 ? "s" : "") + "'>" + iconFor("criteria") + u.cwCriteria + "</span>";
     }
   }
   // Books and Creator are both informational, matched by name only, so
@@ -87,14 +144,15 @@ function chipFor(f) {
 var FILTERS = [
   { key: "all", label: "All" }, { key: "used", label: "In use" },
   { key: "clear", label: "Unused" }, { key: "na", label: "Not in Analytics" },
+  { key: "matched", label: "Matched" }, { key: "unmatched", label: "No match" },
   { key: "unchecked", label: "Unchecked" }
 ];
 function renderFilters() {
-  var counts = { all: S.fields.length, used: 0, clear: 0, na: 0, unchecked: 0 };
+  var counts = { all: S.fields.length, used: 0, clear: 0, na: 0, matched: 0, unmatched: 0, unchecked: 0 };
   S.fields.forEach(function (f) { counts[categoryOf(f)]++; });
   $("field-filters").innerHTML = FILTERS.map(function (fl) {
     if (fl.key !== "all" && !counts[fl.key]) return "";
-    var label = fl.key === "na" ? (S.functionsScanned ? "Not synced" : "Not in Analytics") : fl.label;
+    var label = fl.key === "na" ? naLabel() : fl.key === "unmatched" ? unmatchedLabel() : fl.label;
     return "<button data-f='" + fl.key + "' class='" + (S.filter === fl.key ? "active" : "") + "'>" +
       label + " (" + counts[fl.key] + ")</button>";
   }).join("");
@@ -143,9 +201,17 @@ $("btn-check-all").onclick = function () {
     hideMini();
     S.checking = false;
     $("btn-check-all").disabled = false;
-    var used = S.fields.filter(function (f) { return categoryOf(f) === "used"; }).length;
-    $("check-progress").innerHTML = "All fields checked: <b>" + used + "</b> in use, <b>" +
-      (S.fields.length - used) + "</b> safe or not synced.";
+    var used = 0, matched = 0, rest = 0;
+    S.fields.forEach(function (f) {
+      var c = categoryOf(f);
+      if (c === "used") used++;
+      else if (c === "matched") matched++;
+      else rest++;
+    });
+    var msg = "All fields checked: <b>" + used + "</b> in use";
+    msg += usageScanned() ? (", <b>" + rest + "</b> safe or not synced.")
+      : (", <b>" + matched + "</b> matched by name, <b>" + rest + "</b> no match.");
+    $("check-progress").innerHTML = msg;
     renderFieldList();
   });
 };
@@ -170,8 +236,20 @@ $("btn-export").onclick = function () {
     (r.reports || []).forEach(function (h) {
       uses.push("report " + h.kind + (h.confident ? "" : " (unverified)") + ": " + h.reportName);
     });
+    (r.workflows || []).forEach(function (h) { uses.push("workflow field update: " + h.name); });
+    (r.triggers || []).forEach(function (h) { uses.push("workflow rule trigger: " + h.name); });
+    (r.criteria || []).forEach(function (h) { uses.push("workflow rule criteria: " + h.name); });
+    (r.scoring || []).forEach(function (h) { uses.push("scoring rule: " + h.name); });
+    (r.blueprint || []).forEach(function (h) {
+      uses.push("blueprint: " + h.name + (h.pipelineName ? " (pipeline: " + h.pipelineName + ")" : ""));
+    });
+    (r.webhooks || []).forEach(function (h) { uses.push("webhook: " + h.name); });
+    (r.cwTriggers || []).forEach(function (h) { uses.push("connected workflow trigger: " + h.name); });
+    (r.cwCriteria || []).forEach(function (h) { uses.push("connected workflow criteria: " + h.name); });
     var verdict = cat === "used" ? "In use"
       : cat === "na" ? (S.functionsScanned ? "Not synced (absent from Analytics, no function references)" : "Not in Analytics")
+      : cat === "matched" ? "Matched by name in Books/Creator (informational)"
+      : cat === "unmatched" ? "No Books/Creator name match (informational)"
       : "Unused (synced to Analytics, nothing depends on it)";
     var booksMatches = (r.books || []).map(function (b) { return b.entityLabel + ": " + b.label; }).join("; ");
     var creatorMatchesStr = (r.creator || []).map(function (c) { return c.appLabel + " / " + c.formLabel + ": " + c.label; }).join("; ");
@@ -206,7 +284,14 @@ function renderDetail(f) {
     (S.functionsScanned ? " / " + S.functions.length + " functions" : "") +
     (S.booksScanned ? " / " + S.booksFields.length + " Books fields" : "") +
     (S.creatorScanned ? " / " + S.creatorFields.length + " Creator fields" : "") +
-    (S.reportsScanned ? " / " + S.reports.length + " reports" : "") + " scanned on " + S.scannedAt;
+    (S.reportsScanned ? " / " + S.reports.length + " reports" : "") +
+    (S.workflowFieldUpdatesScanned ? " / " + S.workflowFieldUpdates.length + " workflow field updates" : "") +
+    (S.workflowRulesScanned ? " / " + S.workflowRules.length + " workflow rules" : "") +
+    (S.scoringRulesScanned ? " / " + S.scoringRules.length + " scoring rules" : "") +
+    (S.blueprintFieldsScanned ? " / " + S.blueprintFields.length + " blueprints" : "") +
+    (S.webhookActionsScanned ? " / " + S.webhookActions.length + " webhooks" : "") +
+    (S.connectedWorkflowRulesScanned ? " / " + S.connectedWorkflowRules.length + " connected workflow rules" : "") +
+    " scanned on " + S.scannedAt;
   if (n > 0) {
     var depViews = 0, cfCount = 0, afCount = 0;
     r.columns.forEach(function (c) {
@@ -221,7 +306,15 @@ function renderDetail(f) {
       { n: afCount, label: "aggregate formulas", icon: "aggregate", target: "section-analytics" },
       { n: r.sql.length, label: "query table SQL", icon: "query", target: "section-sql" },
       { n: (r.functions || []).length, label: "CRM functions", icon: "function", target: "section-functions" },
-      { n: (r.reports || []).length, label: "CRM reports", icon: "report", target: "section-reports" }
+      { n: (r.reports || []).length, label: "CRM reports", icon: "report", target: "section-reports" },
+      { n: (r.workflows || []).length, label: "workflow field updates", icon: "workflow", target: "section-workflows" },
+      { n: (r.triggers || []).length, label: "workflow rule triggers", icon: "trigger", target: "section-wf-triggers" },
+      { n: (r.criteria || []).length, label: "workflow rule criteria", icon: "criteria", target: "section-wf-criteria" },
+      { n: (r.scoring || []).length, label: "scoring rules", icon: "scoring", target: "section-scoring" },
+      { n: (r.blueprint || []).length, label: "blueprints", icon: "blueprint", target: "section-blueprint" },
+      { n: (r.webhooks || []).length, label: "webhooks", icon: "webhook", target: "section-webhooks" },
+      { n: (r.cwTriggers || []).length, label: "connected workflow triggers", icon: "trigger", target: "section-cw-triggers" },
+      { n: (r.cwCriteria || []).length, label: "connected workflow criteria", icon: "criteria", target: "section-cw-criteria" }
     ].filter(function (b) { return b.n > 0; }).map(function (b) {
       return "<span class='vb vb-link' onclick=\"__jumpTo('" + b.target + "')\">" +
         iconFor(b.icon) + "<b>" + b.n + "</b>&nbsp;" + b.label + "</span>";
@@ -231,20 +324,44 @@ function renderDetail(f) {
       "<small>" + (r.notSynced ? "Not synced to Analytics; found in CRM Deluge code only. " : "") +
       "Update or retire these before deleting. Scope: " + scope + ".</small></div>" +
       "<div class='verdict-breakdown'>" + breakdown + "</div></div>";
+  } else if (!usageScanned() && (S.booksScanned || S.creatorScanned)) {
+    var nameMatched = (r.books && r.books.length) || (r.creator && r.creator.length);
+    html += nameMatched
+      ? "<div class='verdict clear'><b>Matched by name in Books/Creator</b>" +
+        "<small>Analytics, CRM functions, reports, and workflow automations weren't part of this scan, so this reflects a name match only, not a usage check. Scope: " + scope + ".</small></div>"
+      : "<div class='verdict na'><b>" + unmatchedLabel() + "</b><small>No field named like &ldquo;" +
+        esc(f.label) + "&rdquo; / " + esc(f.api_name) + " found in the scanned Books/Creator sources. " +
+        "Analytics, CRM functions, reports, and workflow automations weren't part of this scan. Scope: " + scope + ".</small></div>";
   } else if (r.notSynced) {
     html += "<div class='verdict na'><b>Not found in Analytics" +
       (S.functionsScanned ? " or CRM Deluge functions" : "") +
-      (S.reportsScanned ? " or CRM reports" : "") + ".</b><small>No synced column named like &ldquo;" +
+      (S.reportsScanned ? " or CRM reports" : "") +
+      (S.workflowFieldUpdatesScanned ? " or workflow field updates" : "") +
+      (S.workflowRulesScanned ? " or workflow rule triggers/criteria" : "") +
+      (S.scoringRulesScanned ? " or scoring rules" : "") +
+      (S.blueprintFieldsScanned ? " or blueprints" : "") + ".</b><small>No synced column named like &ldquo;" +
       esc(f.label) + "&rdquo; / " + esc(f.api_name) + " exists in the scanned workspaces" +
       (S.functionsScanned ? " and no function references it" : "") +
-      (S.reportsScanned ? " and no report references it" : "") + ". Scope: " + scope + ".</small></div>";
+      (S.reportsScanned ? " and no report references it" : "") +
+      (S.workflowFieldUpdatesScanned ? " and no workflow field update references it" : "") +
+      (S.workflowRulesScanned ? " and no workflow rule trigger/criteria references it" : "") +
+      (S.scoringRulesScanned ? " and no scoring rule references it" : "") +
+      (S.blueprintFieldsScanned ? " and doesn't govern a blueprint" : "") + ". Scope: " + scope + ".</small></div>";
   } else {
     html += "<div class='verdict clear'><b>Safe to delete</b> as far as Analytics" +
       (S.functionsScanned ? " and CRM Deluge functions" : "") +
-      (S.reportsScanned ? " and CRM reports" : "") + " are concerned." +
+      (S.reportsScanned ? " and CRM reports" : "") +
+      (S.workflowFieldUpdatesScanned ? " and workflow field updates" : "") +
+      (S.workflowRulesScanned ? " and workflow rule triggers/criteria" : "") +
+      (S.scoringRulesScanned ? " and scoring rules" : "") +
+      (S.blueprintFieldsScanned ? " and blueprints" : "") + " are concerned." +
       "<small>Zoho's dependency engine reports nothing depending on the matched column(s)" +
       (S.functionsScanned ? ", and no function code references the API name" : "") +
       (S.reportsScanned ? ", and no report references it" : "") +
+      (S.workflowFieldUpdatesScanned ? ", and no workflow field update references it" : "") +
+      (S.workflowRulesScanned ? ", and no workflow rule trigger/criteria references it" : "") +
+      (S.scoringRulesScanned ? ", and no scoring rule references it" : "") +
+      (S.blueprintFieldsScanned ? ", and doesn't govern a blueprint" : "") +
       ". Scope: " + scope + ".</small></div>";
   }
   html += "<div id='section-analytics'>";
@@ -299,7 +416,66 @@ function renderDetail(f) {
       " <span class='gcount'>" + r.reports.length + (r.reports.length > 1 ? " reports" : " report") + "</span></h3>";
     html += r.reports.map(function (h) {
       var vtype = "report " + h.kind + (h.confident ? "" : " - unverified match");
-      return usageCard(vtype, h.reportName, h.folderName, null, "");
+      return usageCard(vtype, h.reportName, h.folderName, reportPageUrl(h.reportId), "", "Open report &rarr;");
+    }).join("");
+  }
+  if ((r.workflows || []).length) {
+    html += "<h3 class='usage-group' id='section-workflows'>Workflow field updates referencing " + esc(f.api_name) +
+      " <span class='gcount'>" + r.workflows.length + (r.workflows.length > 1 ? " field updates" : " field update") + "</span></h3>";
+    html += r.workflows.map(function (h) {
+      var val = Array.isArray(h.value) ? h.value.join(", ") : h.value;
+      return usageCard("workflow field update", h.name, h.featureType || null, fieldUpdatePageUrl(h.id),
+        val ? "sets to: " + val : "", "Open field update &rarr;");
+    }).join("");
+  }
+  if ((r.triggers || []).length) {
+    html += "<h3 class='usage-group' id='section-wf-triggers'>Workflow rules triggered off " + esc(f.api_name) +
+      " <span class='gcount'>" + r.triggers.length + (r.triggers.length > 1 ? " rules" : " rule") + "</span></h3>";
+    html += r.triggers.map(function (h) {
+      return usageCard("rule trigger", h.name, null, workflowRulePageUrl(h.id), "", "Open workflow rule &rarr;");
+    }).join("");
+  }
+  if ((r.criteria || []).length) {
+    html += "<h3 class='usage-group' id='section-wf-criteria'>Workflow rules with firing criteria on " + esc(f.api_name) +
+      " <span class='gcount'>" + r.criteria.length + (r.criteria.length > 1 ? " rules" : " rule") + "</span></h3>";
+    html += r.criteria.map(function (h) {
+      return usageCard("rule criteria", h.name, null, workflowRulePageUrl(h.id), "", "Open workflow rule &rarr;");
+    }).join("");
+  }
+  if ((r.scoring || []).length) {
+    html += "<h3 class='usage-group' id='section-scoring'>Scoring rules referencing " + esc(f.api_name) +
+      " <span class='gcount'>" + r.scoring.length + (r.scoring.length > 1 ? " rules" : " rule") + "</span></h3>";
+    html += r.scoring.map(function (h) {
+      return usageCard("scoring rule", h.name, null, scoringRulePageUrl(h.id), "", "Open scoring rule &rarr;");
+    }).join("");
+  }
+  if ((r.blueprint || []).length) {
+    html += "<h3 class='usage-group' id='section-blueprint'>Blueprints governed by " + esc(f.api_name) +
+      " <span class='gcount'>" + r.blueprint.length + "</span></h3>";
+    html += r.blueprint.map(function (h) {
+      return usageCard("blueprint", h.name, h.pipelineName || null, blueprintPageUrl(h.id, $("module-pick").value), "",
+        "Open blueprint &rarr;");
+    }).join("");
+  }
+  if ((r.webhooks || []).length) {
+    html += "<h3 class='usage-group' id='section-webhooks'>Webhooks referencing " + esc(f.api_name) +
+      " <span class='gcount'>" + r.webhooks.length + (r.webhooks.length > 1 ? " webhooks" : " webhook") + "</span></h3>";
+    html += r.webhooks.map(function (h) {
+      return usageCard("webhook", h.name, null, null, "");
+    }).join("");
+  }
+  if ((r.cwTriggers || []).length) {
+    html += "<h3 class='usage-group' id='section-cw-triggers'>Connected workflow rules triggered off " + esc(f.api_name) +
+      " <span class='gcount'>" + r.cwTriggers.length + (r.cwTriggers.length > 1 ? " rules" : " rule") + "</span></h3>";
+    html += r.cwTriggers.map(function (h) {
+      return usageCard("connected automation trigger", h.name, null, null, "");
+    }).join("");
+  }
+  if ((r.cwCriteria || []).length) {
+    html += "<h3 class='usage-group' id='section-cw-criteria'>Connected workflow rules with firing criteria on " +
+      esc(f.api_name) + " <span class='gcount'>" + r.cwCriteria.length + (r.cwCriteria.length > 1 ? " rules" : " rule") + "</span></h3>";
+    html += r.cwCriteria.map(function (h) {
+      return usageCard("connected automation criteria", h.name, null, null, "");
     }).join("");
   }
   if ((r.books || []).length) {

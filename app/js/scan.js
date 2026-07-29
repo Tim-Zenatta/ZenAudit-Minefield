@@ -142,7 +142,7 @@ function selectedCreatorApps() {
 }
 
 // Source toggle tiles: keep the tile styling in sync and refresh the button
-["include-an", "include-fns", "include-reports"].forEach(function (id) {
+["include-an", "include-fns", "include-reports", "include-workflows"].forEach(function (id) {
   var cb = $(id);
   cb.onchange = function () {
     cb.closest(".src-tile").classList.toggle("on", cb.checked);
@@ -169,7 +169,7 @@ $("include-creator").onchange = function () {
 $("include-reverse-audit").onchange = function () {
   var cb = $("include-reverse-audit");
   var exclusive = cb.checked;
-  ["include-an", "include-fns", "include-books", "include-reports", "include-creator"].forEach(function (id) {
+  ["include-an", "include-fns", "include-books", "include-reports", "include-creator", "include-workflows"].forEach(function (id) {
     var other = $(id);
     other.disabled = exclusive;
     other.closest(".src-tile").classList.toggle("disabled-tile", exclusive);
@@ -195,8 +195,9 @@ function updateScanButton() {
     return;
   }
   var an = $("include-an").checked, fns = $("include-fns").checked, books = $("include-books").checked,
-    reports = $("include-reports").checked, creator = $("include-creator").checked;
-  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (books ? 1 : 0) + (reports ? 1 : 0) + (creator ? 1 : 0);
+    reports = $("include-reports").checked, creator = $("include-creator").checked,
+    workflows = $("include-workflows").checked;
+  var srcs = (an ? 1 : 0) + (fns ? 1 : 0) + (books ? 1 : 0) + (reports ? 1 : 0) + (creator ? 1 : 0) + (workflows ? 1 : 0);
   var label = "Scan " + srcs + (srcs === 1 ? " source" : " sources");
   if (an) label += " · " + ws + (ws === 1 ? " workspace" : " workspaces");
   btn.textContent = srcs ? label : "Scan";
@@ -366,13 +367,15 @@ $("btn-scan").onclick = function () {
   }
 
   var doAn = $("include-an").checked, doFns = $("include-fns").checked, doBooks = $("include-books").checked,
-    doReports = $("include-reports").checked, doCreator = $("include-creator").checked;
-  if (!doAn && !doFns && !doBooks && !doReports && !doCreator) { showError("Turn on at least one scan source."); return; }
+    doReports = $("include-reports").checked, doCreator = $("include-creator").checked,
+    doWorkflows = $("include-workflows").checked;
+  if (!doAn && !doFns && !doBooks && !doReports && !doCreator && !doWorkflows) { showError("Turn on at least one scan source."); return; }
   var targets = doAn ? selectedWorkspaces() : [];
   if (doAn && !targets.length) { showError("Select at least one workspace."); return; }
   if (doBooks && !S.booksOrgId) { showError("Select a Books organization before scanning."); return; }
   if (doCreator && !selectedCreatorApps().length) { showError("Select at least one Zoho Creator app before scanning."); return; }
   S.scanning = true;
+  S.analyticsScanned = doAn;
   $("btn-scan").disabled = true;
   $("scan-progress").classList.remove("done");
   S.tables = []; S.queryTables = []; S.viewCount = 0; S.depCache = {}; S.results = {};
@@ -386,15 +389,33 @@ $("btn-scan").onclick = function () {
   }).then(function () {
     return doCreator ? scanCreator() : null;
   }).then(function () {
+    return doWorkflows ? scanWorkflowFieldUpdates() : null;
+  }).then(function () {
+    return doWorkflows ? scanWorkflowRules() : null;
+  }).then(function () {
+    return doWorkflows ? scanScoringRules() : null;
+  }).then(function () {
+    return doWorkflows ? scanBlueprints() : null;
+  }).then(function () {
+    return doWorkflows ? scanWebhooks() : null;
+  }).then(function () {
+    return doWorkflows ? scanConnectedWorkflows() : null;
+  }).then(function () {
     S.scannedAt = new Date().toLocaleString();
     try {
       localStorage.setItem(SCAN_KEY, JSON.stringify({
         at: S.scannedAt, orgId: S.orgId, dc: $("dc").value,
-        tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount,
+        tables: S.tables, queryTables: S.queryTables, viewCount: S.viewCount, analyticsScanned: S.analyticsScanned,
         functions: S.functions, functionsScanned: S.functionsScanned,
         booksFields: S.booksFields, booksScanned: S.booksScanned, booksOrgId: S.booksOrgId,
         reports: S.reports, reportsScanned: S.reportsScanned, reportsSkippedStale: S.reportsSkippedStale,
-        creatorFields: S.creatorFields, creatorScanned: S.creatorScanned
+        creatorFields: S.creatorFields, creatorScanned: S.creatorScanned,
+        workflowFieldUpdates: S.workflowFieldUpdates, workflowFieldUpdatesScanned: S.workflowFieldUpdatesScanned,
+        workflowRules: S.workflowRules, workflowRulesScanned: S.workflowRulesScanned,
+        scoringRules: S.scoringRules, scoringRulesScanned: S.scoringRulesScanned,
+        blueprintFields: S.blueprintFields, blueprintFieldsScanned: S.blueprintFieldsScanned,
+        webhookActions: S.webhookActions, webhookActionsScanned: S.webhookActionsScanned,
+        connectedWorkflowRules: S.connectedWorkflowRules, connectedWorkflowRulesScanned: S.connectedWorkflowRulesScanned
       }));
     } catch (e) { /* cache is best-effort */ }
     finishScan();
@@ -580,6 +601,253 @@ function extractReportFieldRefs(report) {
   return refs;
 }
 
+// Zoho's criteria tree (used for both a rule's trigger criteria and its
+// firing conditions, see config-workflow.html) nests as {group_operator,
+// group: [...]}, bottoming out at {field: {api_name}, comparator, value}.
+// The Edit trigger's "specific fields" checkbox list (vs. a real value
+// comparison) reuses this exact same tree, just with comparator/value set to
+// the sentinel "${ANYVALUE}" - confirmed against a live rule, not guessed -
+// so no separate handling is needed for it. relational_criteria (comparing
+// against another module's field rather than a literal value) isn't walked,
+// same deliberate scoping choice as extractReportFieldRefs skipping
+// group_by/aggregate.
+function walkCriteriaGroup(node, refs) {
+  if (!node) return;
+  if (node.group && node.group.length) { node.group.forEach(function (g) { walkCriteriaGroup(g, refs); }); return; }
+  if (node.field && node.field.api_name) refs.push(node.field.api_name);
+}
+
+// A rule's own criteria for firing (execute_when.details.criteria) is
+// distinct from the module-wide "when to fire" condition list (conditions[]
+// .criteria_details.criteria) - kept as two separate reference lists so a
+// field can be flagged as "used as a trigger" separately from "used in
+// firing criteria," per your call.
+function extractTriggerFieldRefs(rule) {
+  var refs = [];
+  walkCriteriaGroup(rule.execute_when && rule.execute_when.details && rule.execute_when.details.criteria, refs);
+  return refs;
+}
+function extractConditionFieldRefs(rule) {
+  var refs = [];
+  (rule.conditions || []).forEach(function (c) {
+    walkCriteriaGroup(c.criteria_details && c.criteria_details.criteria, refs);
+  });
+  return refs;
+}
+
+function scanWorkflowRules() {
+  S.workflowRules = []; S.workflowRulesScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM workflow rules&hellip;";
+  showLoader("Listing CRM workflow rules...");
+  var failures = 0;
+  function listPage(page, all) {
+    return crmGet("/settings/automation/workflow_rules?page=" + page + "&per_page=200").then(function (body) {
+      all = all.concat((body && body.workflow_rules) || []);
+      var info = body && body.info;
+      return (info && info.more_records) ? listPage(page + 1, all) : all;
+    });
+  }
+  return listPage(1, []).then(function (list) {
+    var listed = list.length;
+    return runQueue(list, function (rule) {
+      return crmGet("/settings/automation/workflow_rules/" + rule.id).then(function (detail) {
+        var full = (detail && detail.workflow_rules && detail.workflow_rules[0]) || detail;
+        if (!full || !full.module) { failures++; return; }
+        S.workflowRules.push({
+          id: full.id, name: full.name, moduleApiName: full.module.api_name, moduleId: full.module.id,
+          triggerFields: extractTriggerFieldRefs(full),
+          criteriaFields: extractConditionFieldRefs(full)
+        });
+      }).catch(function () { failures++; });
+    }, function (i, n, rule) {
+      $("scan-progress").innerHTML = "Reading workflow rule <b>" + i + " / " + n + "</b> - " + esc(rule.name || "");
+      showLoader("Reading workflow rule " + i + " / " + n, n ? i / n : null);
+    }).then(function () {
+      S.workflowRulesScanned = true;
+      if (failures > 0) {
+        showError("Read " + S.workflowRules.length + " of " + listed + " workflow rules." +
+          (S.workflowRules.length === 0 ? " None were readable, so workflow trigger/criteria matching is inactive." : ""));
+      }
+    });
+  }).catch(function (err) {
+    showError("Workflow rules scan failed (field update matching is unaffected). Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.workflow_rules.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
+// Unlike workflow rules, the scoring rules LIST endpoint already embeds each
+// rule's full field_rules[].criteria tree, so no per-rule detail fetch is
+// needed here. signal_rules (email opens/clicks) are a parallel, non-field
+// scoring mechanism and are intentionally not extracted.
+function extractScoringFieldRefs(rule) {
+  var refs = [];
+  (rule.field_rules || []).forEach(function (fr) { walkCriteriaGroup(fr.criteria, refs); });
+  return refs;
+}
+function scanScoringRules() {
+  S.scoringRules = []; S.scoringRulesScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM scoring rules&hellip;";
+  showLoader("Listing CRM scoring rules...");
+  function listPage(page, all) {
+    return crmGet("/settings/automation/scoring_rules?page=" + page + "&per_page=200").then(function (body) {
+      ((body && body.scoring_rules) || []).forEach(function (rule) {
+        if (!rule.module) return;
+        all.push({
+          id: rule.id, name: rule.name, moduleApiName: rule.module.api_name, moduleId: rule.module.id,
+          criteriaFields: extractScoringFieldRefs(rule)
+        });
+      });
+      var info = body && body.info;
+      return (info && info.more_records) ? listPage(page + 1, all) : all;
+    });
+  }
+  return listPage(1, []).then(function (all) {
+    S.scoringRules = all;
+    S.scoringRulesScanned = true;
+  }).catch(function (err) {
+    showError("Scoring rules scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.scoring_rules.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
+// The Blueprints list endpoint gives each blueprint's single governing
+// process field directly (e.g. the "Status" picklist driving the flow), no
+// per-blueprint detail fetch needed. Per-transition mandatory fields
+// (during_inputs) and per-transition criteria aren't included here: that API
+// requires already knowing transition IDs with no documented way to
+// enumerate them, so that finer-grained piece isn't buildable right now.
+function scanBlueprints() {
+  S.blueprintFields = []; S.blueprintFieldsScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM blueprints&hellip;";
+  showLoader("Listing CRM blueprints...");
+  function listPage(page, all) {
+    return crmGet("/settings/blueprints?page=" + page + "&per_page=200").then(function (body) {
+      ((body && body.blueprints) || []).forEach(function (bp) {
+        if (!bp.module || !bp.field) return;
+        all.push({
+          id: bp.id, name: bp.name, moduleApiName: bp.module.api_name, moduleId: bp.module.id,
+          fieldApiName: bp.field.api_name, pipelineName: (bp.pipeline && bp.pipeline.name) || null
+        });
+      });
+      var info = body && body.info;
+      return (info && info.more_records) ? listPage(page + 1, all) : all;
+    });
+  }
+  return listPage(1, []).then(function (all) {
+    S.blueprintFields = all;
+    S.blueprintFieldsScanned = true;
+  }).catch(function (err) {
+    showError("Blueprints scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.blueprint.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
+// Webhook parameter values embed fields as Zoho's self-describing merge-tag
+// syntax ${!Module.Field}, naming both module and field explicitly, unlike a
+// bare Deluge function search there's no cross-module ambiguity to guard
+// against. Walks every string value anywhere in the webhook object rather
+// than hardcoding each parameter location (headers, body.form_data_content,
+// url, url_parameters can all carry these, confirmed against the docs), so
+// nothing gets missed. Note: the module name embedded in the tag is
+// whatever string Zoho's merge-tag engine renders, which can differ from a
+// module's api_name for legacy-renamed modules (the same Deals/Potentials
+// quirk fixed elsewhere) - there's no module id inside the tag text to
+// correct for that here.
+var MERGE_TAG_RE = /\$\{!([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\}/g;
+function extractMergeTagFieldRefs(obj) {
+  var refs = [];
+  (function walk(o) {
+    if (!o || typeof o !== "object") return;
+    Object.keys(o).forEach(function (k) {
+      var v = o[k];
+      if (typeof v === "string") {
+        var m;
+        MERGE_TAG_RE.lastIndex = 0;
+        while ((m = MERGE_TAG_RE.exec(v))) refs.push({ moduleApiName: m[1], fieldApiName: m[2] });
+      } else if (v && typeof v === "object") {
+        walk(v);
+      }
+    });
+  })(obj);
+  return refs;
+}
+function scanWebhooks() {
+  S.webhookActions = []; S.webhookActionsScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM webhooks&hellip;";
+  showLoader("Listing CRM webhooks...");
+  function listPage(page, all) {
+    return crmGet("/settings/automation/webhooks?page=" + page + "&per_page=200").then(function (body) {
+      ((body && body.webhooks) || []).forEach(function (wh) {
+        if (!wh.module) return;
+        all.push({ id: wh.id, name: wh.name, moduleApiName: wh.module.api_name, fieldRefs: extractMergeTagFieldRefs(wh) });
+      });
+      var info = body && body.info;
+      return (info && info.more_records) ? listPage(page + 1, all) : all;
+    });
+  }
+  return listPage(1, []).then(function (all) {
+    S.webhookActions = all;
+    S.webhookActionsScanned = true;
+  }).catch(function (err) {
+    showError("Webhooks scan failed (other automation matching is unaffected). Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.automation_actions.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
+// Connected Workflows (Zoho Flow-triggered rules) use the identical
+// execute_when/conditions criteria tree as regular Workflow Rules (confirmed
+// against the docs), so the same walkCriteriaGroup-based extraction applies
+// directly. Three-level fetch: list connected workflows, then each one's
+// rules (gives trigger criteria inline, per the docs), then each rule's own
+// detail (needed for firing conditions, which the rules-list response does
+// not include). A rule has no name of its own, only an id, so it's labeled
+// by its parent connected workflow's name (plus a rule index when a
+// workflow has more than one rule).
+function scanConnectedWorkflows() {
+  S.connectedWorkflowRules = []; S.connectedWorkflowRulesScanned = false;
+  $("scan-progress").innerHTML = "Listing connected workflows&hellip;";
+  showLoader("Listing connected workflows...");
+  var failures = 0;
+  function listWorkflows(page, all) {
+    return crmGet("/settings/connected_workflows?page=" + page + "&per_page=200").then(function (body) {
+      all = all.concat((body && body.connected_workflows) || []);
+      var info = body && body.info;
+      return (info && info.more_records) ? listWorkflows(page + 1, all) : all;
+    });
+  }
+  return listWorkflows(1, []).then(function (workflows) {
+    return runQueue(workflows, function (cw) {
+      return crmGet("/settings/connected_workflows/" + cw.id + "/rules").then(function (body) {
+        var rules = (body && body.rules) || [];
+        return runQueue(rules, function (rule) {
+          return crmGet("/settings/connected_workflows/" + cw.id + "/rules/" + rule.id).then(function (detail) {
+            var full = (detail && detail.rules && detail.rules[0]) || detail;
+            var moduleObj = full && full.module;
+            if (!full || !moduleObj) { failures++; return; }
+            S.connectedWorkflowRules.push({
+              id: full.id, name: cw.name + (rules.length > 1 ? " (rule " + (rules.indexOf(rule) + 1) + ")" : ""),
+              moduleApiName: moduleObj.api_name, moduleId: moduleObj.id,
+              triggerFields: extractTriggerFieldRefs(full),
+              criteriaFields: extractConditionFieldRefs(full)
+            });
+          }).catch(function () { failures++; });
+        });
+      }).catch(function () { failures++; });
+    }, function (i, n, cw) {
+      $("scan-progress").innerHTML = "Reading connected workflow <b>" + i + " / " + n + "</b> - " + esc(cw.name || "");
+      showLoader("Reading connected workflow " + i + " / " + n, n ? i / n : null);
+    });
+  }).then(function () {
+    S.connectedWorkflowRulesScanned = true;
+    if (failures > 0) {
+      showError("Some connected workflow rules could not be read (other automation matching is unaffected).");
+    }
+  }).catch(function (err) {
+    showError("Connected workflows scan failed. Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.connected_workflows.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
 // filterByFolder is only ever true for the reverse audit, which is the one
 // case that actually needs it (narrowing a mixed workspace so its Analytics
 // -> CRM name matching doesn't drown in unrelated apps' tables). A normal
@@ -744,14 +1012,53 @@ function scanFunctions() {
   });
 }
 
+// Field Update actions name their target module + field by api_name directly
+// (see get-field-update.html), so unlike functionHits/reportHits this needs
+// no text search, and matching by module.api_name rules out cross-module
+// false positives entirely. Paginated since an org can have 200+ of these.
+function scanWorkflowFieldUpdates() {
+  S.workflowFieldUpdates = []; S.workflowFieldUpdatesScanned = false;
+  $("scan-progress").innerHTML = "Listing CRM workflow field updates&hellip;";
+  showLoader("Listing CRM workflow field updates...");
+  function fetchPage(page) {
+    $("scan-progress").innerHTML = "Listing CRM workflow field updates &mdash; page <b>" + page + "</b>&hellip;";
+    showLoader("Listing CRM workflow field updates — page " + page + "...");
+    return crmGet("/settings/automation/field_updates?page=" + page + "&per_page=200").then(function (body) {
+      ((body && body.field_updates) || []).forEach(function (fu) {
+        if (!fu.module || !fu.field) return;
+        S.workflowFieldUpdates.push({
+          id: fu.id, name: fu.name,
+          moduleApiName: fu.module.api_name, moduleId: fu.module.id, fieldApiName: fu.field.api_name,
+          value: fu.value, valueType: fu.type, featureType: fu.feature_type
+        });
+      });
+      var info = body && body.info;
+      if (info && info.more_records) return fetchPage(page + 1);
+    });
+  }
+  return fetchPage(1).then(function () {
+    S.workflowFieldUpdatesScanned = true;
+  }).catch(function (err) {
+    showError("Workflow field updates scan failed. Check the \"" + $("conn-crm").value +
+      "\" connection and its ZohoCRM.settings.automation_actions.READ scope.\n" + String(err && err.message || err));
+  });
+}
+
 $("btn-cache").onclick = function () {
   var c = JSON.parse(localStorage.getItem(SCAN_KEY));
   S.tables = c.tables; S.queryTables = c.queryTables; S.viewCount = c.viewCount;
+  S.analyticsScanned = c.analyticsScanned != null ? !!c.analyticsScanned : (c.tables || []).length > 0;
   S.functions = c.functions || []; S.functionsScanned = !!c.functionsScanned;
   S.booksFields = c.booksFields || []; S.booksScanned = !!c.booksScanned; S.booksOrgId = c.booksOrgId || null;
   S.reports = c.reports || []; S.reportsScanned = !!c.reportsScanned;
   S.reportsSkippedStale = c.reportsSkippedStale || 0;
   S.creatorFields = c.creatorFields || []; S.creatorScanned = !!c.creatorScanned;
+  S.workflowFieldUpdates = c.workflowFieldUpdates || []; S.workflowFieldUpdatesScanned = !!c.workflowFieldUpdatesScanned;
+  S.workflowRules = c.workflowRules || []; S.workflowRulesScanned = !!c.workflowRulesScanned;
+  S.scoringRules = c.scoringRules || []; S.scoringRulesScanned = !!c.scoringRulesScanned;
+  S.blueprintFields = c.blueprintFields || []; S.blueprintFieldsScanned = !!c.blueprintFieldsScanned;
+  S.webhookActions = c.webhookActions || []; S.webhookActionsScanned = !!c.webhookActionsScanned;
+  S.connectedWorkflowRules = c.connectedWorkflowRules || []; S.connectedWorkflowRulesScanned = !!c.connectedWorkflowRulesScanned;
   S.orgId = c.orgId; S.scannedAt = c.at; $("dc").value = c.dc;
   finishScan();
 };
@@ -772,6 +1079,12 @@ function finishScan() {
     stats.push("<b>" + S.reports.length + "</b> reports" +
       (S.reportsSkippedStale ? " (" + S.reportsSkippedStale + " skipped, not accessed in the past year)" : ""));
   }
+  if (S.workflowFieldUpdatesScanned) stats.push("<b>" + S.workflowFieldUpdates.length + "</b> workflow field updates");
+  if (S.workflowRulesScanned) stats.push("<b>" + S.workflowRules.length + "</b> workflow rules");
+  if (S.scoringRulesScanned) stats.push("<b>" + S.scoringRules.length + "</b> scoring rules");
+  if (S.blueprintFieldsScanned) stats.push("<b>" + S.blueprintFields.length + "</b> blueprints");
+  if (S.webhookActionsScanned) stats.push("<b>" + S.webhookActions.length + "</b> webhooks");
+  if (S.connectedWorkflowRulesScanned) stats.push("<b>" + S.connectedWorkflowRules.length + "</b> connected workflow rules");
   var p = $("scan-progress");
   p.classList.add("done");
   p.innerHTML = "<b>Last scan · " + esc(S.scannedAt) + "</b>" +
