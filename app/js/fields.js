@@ -171,16 +171,19 @@ function sqlHits(field) {
 // Best-effort Deluge module scoping for functionHits, so a Contacts-scoped
 // First_Name reference doesn't bleed into the Leads audit just because both
 // modules have a same-named field. Only field accesses through a variable
-// Deluge itself ties to an explicit module - a getRecordById/getRecords/
-// searchRecords/getRelatedRecords fetch, the var = Module[criteria]
-// shorthand, or a map later passed to createRecord/updateRecord - can be
-// confidently attributed. Everything else (bare input.Field, record.get
-// ("Field"), or any variable we can't resolve) stays ambiguous and keeps
-// today's module-agnostic behavior; this only ever REMOVES false positives,
-// it never drops a real hit we can't disprove. The shorthand pattern is
-// gated on matching one of this org's actual module api_names (via
-// S.modules) specifically to avoid mistaking ordinary list/map indexing
-// (someList[0]) for a module reference.
+// Deluge itself ties to an explicit module can be confidently attributed:
+// a getRecordById/getRecords/searchRecords/getRelatedRecords fetch, the
+// var = Module[criteria] shorthand, a map later passed to createRecord/
+// updateRecord, a raw invokeurl REST call with the module in the URL path
+// (.../crm/v8/Deals/...), or a variable unwrapped from one of those via the
+// Zoho REST envelope's .get("data"). Everything else (bare input.Field,
+// record.get("Field"), or any variable we can't resolve) stays ambiguous
+// and keeps today's module-agnostic behavior; this only ever REMOVES false
+// positives, it never drops a real hit we can't disprove. The shorthand and
+// invokeurl patterns are gated on matching one of this org's actual module
+// api_names (via S.modules), specifically to avoid mistaking ordinary
+// list/map indexing (someList[0]) or an unrelated URL for a module
+// reference.
 function extractDelugeModuleVars(code) {
   var vars = {};
   var knownModules = {};
@@ -188,12 +191,27 @@ function extractDelugeModuleVars(code) {
   var fetchRe = /(\w+)\s*=\s*zoho\.crm\.(?:getRecordById|getRecords|searchRecords|getRelatedRecords)\s*\(\s*["']([A-Za-z0-9_]+)["']/gi;
   var writeRe = /zoho\.crm\.(?:createRecord|updateRecord)\s*\(\s*["']([A-Za-z0-9_]+)["']\s*,\s*(?:\S+\s*,\s*)?(\w+)\s*\)/gi;
   var shorthandRe = /(\w+)\s*=\s*([A-Za-z][A-Za-z0-9_]*)\s*\[/g;
+  // Raw REST calls via invokeurl embed the module directly in the URL path
+  // (/crm/v{n}/Module[/id]), a very common alternative to the zoho.crm.*
+  // built-ins, especially in older/hand-written functions.
+  var invokeUrlRe = /(\w+)\s*=\s*invokeurl\s*\[[\s\S]{0,300}?url\s*:\s*["'][^"']*\/crm\/v\d+\/([A-Za-z0-9_]+)/gi;
+  // The Zoho REST envelope {"data": [...]} is almost always unwrapped into a
+  // second variable before fields are read off it - propagate the tag from
+  // the envelope variable to whatever it's unwrapped into.
+  var unwrapRe = /(\w+)\s*=\s*(\w+)\s*\.\s*get\(\s*["']data["']\s*\)/gi;
   var m;
   while ((m = fetchRe.exec(code))) vars[m[1]] = knownModules[norm(m[2])] || m[2];
   while ((m = writeRe.exec(code))) vars[m[2]] = knownModules[norm(m[1])] || m[1];
   while ((m = shorthandRe.exec(code))) {
     var known = knownModules[norm(m[2])];
     if (known && !vars[m[1]]) vars[m[1]] = known;
+  }
+  while ((m = invokeUrlRe.exec(code))) {
+    var knownUrl = knownModules[norm(m[2])];
+    if (knownUrl) vars[m[1]] = knownUrl;
+  }
+  while ((m = unwrapRe.exec(code))) {
+    if (vars[m[2]] && !vars[m[1]]) vars[m[1]] = vars[m[2]];
   }
   return vars;
 }
